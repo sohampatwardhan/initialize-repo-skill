@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-17-initialize-repo-skill-design.md`
 
+**Tracking:** parent issue #1; Task N is issue #(N+1).
+
 ## Global Constraints
 
 - Scripts must run on bash 3.2 (macOS default): no associative arrays, no `mapfile`/`readarray`, no `${var,,}`, no `declare -n`. No GNU-only flags (`sed -i`, `grep -P`, `readlink -f`, `date -d`).
@@ -91,7 +93,7 @@ README.md, AGENTS.md, CLAUDE.md, … (dogfood)   # T12
 
   Pin `actions/checkout` by SHA (resolve with `gh api repos/actions/checkout/git/ref/tags/<latest v-tag> --jq .object.sha`).
 - [ ] **Step 6: Run** `actionlint .github/workflows/ci.yml && shellcheck tests/*.sh tests/lib/*.sh`. Expected: no output.
-- [ ] **Step 7: Commit**: `ci: add test harness and repository CI` + `Closes #<T1>`.
+- [ ] **Step 7: Commit**: `ci: add test harness and repository CI` + `Closes #2`.
 
 ---
 
@@ -130,7 +132,7 @@ test_issue_template         # .github/ISSUE_TEMPLATE/bug.yml    -> non-logic
 - [ ] **Step 2: Run** `bash skills/initialize-repo/templates/scripts/ci-scope.test.sh`. Expected: fails (script missing).
 - [ ] **Step 3: Implement `ci-scope.sh`** with `while IFS= read -r path` and an early exit on the first logic path.
 - [ ] **Step 4: Run** the test, then `shellcheck` on both files. Expected: all pass, no warnings.
-- [ ] **Step 5: Commit**: `feat: add ci-scope classifier` + `Closes #<T2>`.
+- [ ] **Step 5: Commit**: `feat: add ci-scope classifier` + `Closes #3`.
 
 ---
 
@@ -160,7 +162,7 @@ test_creates_parent_dirs              # output deep/nested/x -> exists
 - [ ] **Step 2: Run** `bash tests/render.test.sh`. Expected: fails.
 - [ ] **Step 3: Implement.** Do the substitution in a bash `while read` loop with `${line//\{\{$key\}\}/$value}`, not `sed`, so special characters in values are safe.
 - [ ] **Step 4: Run** the test and `shellcheck`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add template renderer` + `Closes #<T3>`.
+- [ ] **Step 5: Commit**: `feat: add template renderer` + `Closes #4`.
 
 ---
 
@@ -208,7 +210,7 @@ test_render_trunk_branch   # DEFAULT_BRANCH=trunk -> yq '.on.push.branches[0]' =
 - [ ] **Step 3: Write the base `ci.yml` and the five snippets.** Resolve each action's SHA via `gh api repos/<owner>/<action>/git/ref/tags/<tag> --jq .object.sha`. If that returns a tag object, follow it with `gh api repos/<o>/<a>/git/tags/<sha> --jq .object.sha`.
 - [ ] **Step 4: Run** the test. Expected: pass.
 - [ ] **Step 5: Add `actionlint` and `yq` installation** to the `tests` job in this repo's `.github/workflows/ci.yml`, pinned by SHA or by a checksum-verified release download. Run `actionlint` on it.
-- [ ] **Step 6: Commit**: `feat: add CI workflow template with logic-scoped jobs` + `Closes #<T4>`.
+- [ ] **Step 6: Commit**: `feat: add CI workflow template with logic-scoped jobs` + `Closes #5`.
 
 ---
 
@@ -264,7 +266,7 @@ test_missing_settings_dir       # --dir nope -> exit 2, stderr names the dir
 
   Structure the script as one function per area (`audit_repo`, `apply_repo`, …) and a dispatcher, so Tasks 6–7 add areas without touching existing ones.
 - [ ] **Step 4: Run** the test and `shellcheck`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add repo-settings audit and apply for repo settings` + `Closes #<T5>`.
+- [ ] **Step 5: Commit**: `feat: add repo-settings audit and apply for repo settings` + `Closes #6`.
 
 ---
 
@@ -294,7 +296,7 @@ test_label_with_space           # "good first issue" color diff -> PATCH .../lab
 - [ ] **Step 2: Run** it. Expected: fails.
 - [ ] **Step 3: Implement** the labels area. `config/labels.json` lists GitHub's nine default labels with their default colors, plus `{"name":"task","color":"1D76DB","description":"A specific piece of work"}`.
 - [ ] **Step 4: Run** `bash tests/run-all.sh` and `shellcheck`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add labels area to repo-settings` + `Closes #<T6>`.
+- [ ] **Step 5: Commit**: `feat: add labels area to repo-settings` + `Closes #7`.
 
 ---
 
@@ -346,7 +348,7 @@ test_classic_protection_note           # protection fixture present -> NOTE line
 - [ ] **Step 2: Run** it. Expected: fails.
 - [ ] **Step 3: Implement** the area and the default config.
 - [ ] **Step 4: Run** `bash tests/run-all.sh` and `shellcheck`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add ruleset area with required-check guard` + `Closes #<T7>`.
+- [ ] **Step 5: Commit**: `feat: add ruleset area with required-check guard` + `Closes #8`.
 
 ---
 
@@ -388,7 +390,7 @@ test_issue_types_absent           # graphql issueTypes [] -> issue_types=no
 - [ ] **Step 2: Run** it. Expected: fails.
 - [ ] **Step 3: Implement.** Detect `jq` and `git` with `command -v`. Parse scopes from `gh auth status` output.
 - [ ] **Step 4: Run** `bash tests/run-all.sh` and `shellcheck`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add preflight checks and situation detection` + `Closes #<T8>`.
+- [ ] **Step 5: Commit**: `feat: add preflight checks and situation detection` + `Closes #9`.
 
 ---
 
@@ -429,7 +431,7 @@ test_markdown_lint             # markdownlint-cli2 on rendered *.md exits 0 (SKI
 - [ ] **Step 2: Run** it. Expected: fails.
 - [ ] **Step 3: Write `references/github-workflow.md`** from the spec's "GitHub workflow guidance" section, phrased for any agent and any repo. Then write the templates.
 - [ ] **Step 4: Run** `bash tests/run-all.sh`. Expected: pass. Add `markdownlint-cli2` to this repo's CI `tests` job.
-- [ ] **Step 5: Commit**: `feat: add content and GitHub templates` + `Closes #<T9>`.
+- [ ] **Step 5: Commit**: `feat: add content and GitHub templates` + `Closes #10`.
 
 ---
 
@@ -465,7 +467,7 @@ test_steps_in_order            # SKILL.md headings contain Preflight, Gather, Cr
 - [ ] **Step 2: Run** it. Expected: fails.
 - [ ] **Step 3: Write the three docs and the example.** Use the superpowers:writing-skills skill for `SKILL.md` structure and description wording.
 - [ ] **Step 4: Run** `bash tests/run-all.sh`. Expected: pass.
-- [ ] **Step 5: Commit**: `feat: add SKILL.md and design references` + `Closes #<T10>`.
+- [ ] **Step 5: Commit**: `feat: add SKILL.md and design references` + `Closes #11`.
 
 ---
 
@@ -494,7 +496,7 @@ test_defaults_example_keys     # defaults.yaml contains all 9 keys from the spec
   Add `claude plugin validate .` as a CI step only if the docs confirm such a command exists.
 - [ ] **Step 3: Run** them. Expected: fail. **Step 4: Write the manifests and the example.** **Step 5: Run** `bash tests/run-all.sh`. Expected: pass.
 - [ ] **Step 6: Local install check:** add this repo as a local marketplace in Claude Code and confirm `initialize-repo` appears in the skill list. Run `npx skills add . --list` (or the docs' equivalent) and confirm it is discovered.
-- [ ] **Step 7: Commit**: `feat: package skill for plugin marketplace and skills CLI` + `Closes #<T11>`.
+- [ ] **Step 7: Commit**: `feat: package skill for plugin marketplace and skills CLI` + `Closes #12`.
 
 ---
 
@@ -531,5 +533,5 @@ test_ci_scope_test_in_sync     # scripts/ci-scope.test.sh identical to template
 - [ ] **Step 2: Run the skill on this repo** by following `SKILL.md` as written: preflight, then `situation=configured` or `existing-first`. Note every step where `SKILL.md` was unclear, and fix `SKILL.md` in the same task.
 - [ ] **Step 3: Run** `bash tests/run-all.sh`, `actionlint`, and `shellcheck`. Expected: pass.
 - [ ] **Step 4: Run** `scripts/repo-settings.sh audit` and show the output to the user. **Apply only the items they approve.** Expect `ruleset.default-branch` to be `BLOCKED` until `ci-ok` has run on `main`. That's correct, and it is applied after the PR merges.
-- [ ] **Step 5: Commit**: `chore: initialize this repository with the skill` + `Closes #<T12>`.
+- [ ] **Step 5: Commit**: `chore: initialize this repository with the skill` + `Closes #13`.
 - [ ] **Step 6: Open the `feat/v1` PR** with every `Closes #N` in the body. After the user merges it, re-run `repo-settings.sh apply ruleset.default-branch`, then offer the proof PR (a one-line docs change that should show `ci-ok` green with the heavy jobs skipped).
