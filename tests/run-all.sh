@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run every tests/*.test.sh and skills/initialize-repo/templates/scripts/*.test.sh.
+# Run every tests/*.test.sh, skills/initialize-repo/templates/scripts/*.test.sh
+# and this repo's own scripts/*.test.sh.
 # Exits non-zero if any test file fails. Bash 3.2 compatible.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,7 +8,7 @@ cd "$ROOT" || exit 1
 
 failed=0
 ran=0
-for f in tests/*.test.sh skills/initialize-repo/templates/scripts/*.test.sh; do
+for f in tests/*.test.sh skills/initialize-repo/templates/scripts/*.test.sh scripts/*.test.sh; do
   [ -f "$f" ] || continue # unmatched glob stays literal
   ran=$((ran + 1))
   printf '== %s\n' "$f"
