@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Fake `gh` for tests. Set FAKE_GH_DIR to a directory of fixtures.
+#
+# Contract:
+#   gh repo view ...            prints $FAKE_GH_DIR/repo-view.json
+#   gh api [-X M] EP [--input F|-] [-f/-F k=v]
+#     EP is mapped to a fixture name: leading "/" stripped, every "/" -> "__",
+#     query string kept as-is ("?", "&", "=").
+#   GET:   $FAKE_GH_DIR/<name>.err exists  -> contents to stderr, exit 1
+#          $FAKE_GH_DIR/<name>.json exists -> contents to stdout, exit 0
+#                                             (an empty file emulates HTTP 204)
+#          otherwise "gh: Not Found (HTTP 404)" to stderr, exit 1
+#   other methods: append "METHOD EP" (plus a "BODY<TAB>json" line when a body
+#          was given) to $FAKE_GH_DIR/calls.log. Then
+#          <name>.<METHOD>.err -> stderr, exit 1; else <name>.<METHOD>.json if
+#          present, else "{}".
+set -u
+dir="${FAKE_GH_DIR:?FAKE_GH_DIR not set}"
+
+if [ "${1:-}" = "repo" ] && [ "${2:-}" = "view" ]; then
+  cat "$dir/repo-view.json"
+  exit 0
+fi
+if [ "${1:-}" != "api" ]; then
+  echo "fake gh: unsupported: $*" >&2
+  exit 2
+fi
+shift
+
+method=GET
+endpoint=""
+input=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X | --method) method="$2"; shift 2 ;;
+    --input) input="$2"; shift 2 ;;
+    -f | -F | -H | --header | --field | --raw-field) shift 2 ;;
+    -*) shift ;;
+    *) endpoint="$1"; shift ;;
+  esac
+done
+
+endpoint="${endpoint#/}"
+name="${endpoint//\//__}"
+
+if [ "$method" = "GET" ]; then
+  if [ -f "$dir/$name.err" ]; then
+    cat "$dir/$name.err" >&2
+    exit 1
+  fi
+  if [ -f "$dir/$name.json" ]; then
+    cat "$dir/$name.json"
+    exit 0
+  fi
+  echo "gh: Not Found (HTTP 404)" >&2
+  exit 1
+fi
+
+body=""
+if [ -n "$input" ]; then
+  if [ "$input" = "-" ]; then body="$(cat)"; else body="$(cat "$input")"; fi
+fi
+{
+  printf '%s %s\n' "$method" "$endpoint"
+  if [ -n "$body" ]; then
+    printf 'BODY\t%s\n' "$(printf '%s' "$body" | tr -d '\n')"
+  fi
+} >>"$dir/calls.log"
+
+if [ -f "$dir/$name.$method.err" ]; then
+  cat "$dir/$name.$method.err" >&2
+  exit 1
+fi
+if [ -f "$dir/$name.$method.json" ]; then
+  cat "$dir/$name.$method.json"
+else
+  echo '{}'
+fi
