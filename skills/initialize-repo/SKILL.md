@@ -81,7 +81,7 @@ Ask only what the preferences file and the repo don't answer, in one message:
 | Copyright holder | when a licence is chosen, unless `copyright_holder` or `author_name` | `LICENSE` |
 | Stack | new: ask; existing: detect and confirm | CI snippet, `.gitignore`, `STACK_COMMANDS`, Dependabot |
 | Merge style, required approvals | unless `merge_style` / `required_approvals` (defaults: squash only, 0) | `.github/settings/`, `APPROVALS` |
-| Security contact: GitHub private vulnerability reporting only, or also an email address | unless the repo already has `SECURITY.md` | `SECURITY_CONTACT` |
+| Security contact: an email address; for a public repo, or private vulnerability reporting only | unless the repo already has `SECURITY.md` | `SECURITY_CONTACT` |
 
 - Licence: offer the keys from `gh api licenses | jq -r '.[] | "\(.key)\t\(.name)"'`, plus "no licence". Always ask unless the preference is set; never pick one for the user.
 - Stack detection for existing repos: `package.json` means Node, `pyproject.toml` (or `requirements.txt`) Python, `go.mod` Go, `Cargo.toml` Rust. If none of those exists but the repo already builds and tests with its own tooling (shell scripts, a `Makefile`, the `run:` steps of its workflows), the stack is `other`: take `STACK_COMMANDS` from those commands and confirm them. Anything else, or nothing yet, means `placeholder`.
@@ -117,7 +117,7 @@ Render into a temporary directory first, then move each file into the repo. A fi
 | `.gitignore` | `gh api gitignore/templates/<Lang>` |
 | `.github/settings/*.json` | `config/`, copied and adjusted |
 
-**Render** the content templates (everything in `templates/` except `templates/ci/`, `templates/scripts/` and `templates/.github/workflows/`) into a temporary directory, passing every value; keys a template doesn't use are ignored. Run it as one shell command, with `SKILL` and the answer variables (`NAME`, `DESCRIPTION`, `OWNER`, `BRANCH`, `HOLDER`, `LICENSE_NAME`, `CONTACT`, `CONVENTION`, `STACK_COMMANDS`) set in the same shell. For an existing repo, `OWNER` and `NAME` come from `repo=`. A value for a file the repo keeps its own copy of (say `SECURITY_CONTACT` when `SECURITY.md` stays) can be any text; that rendered file is discarded. With no security email, pass any text as `SECURITY_CONTACT` and then delete the sentence `If that is unavailable, contact <...>.` from the rendered `SECURITY.md`.
+**Render** the content templates (everything in `templates/` except `templates/ci/`, `templates/scripts/` and `templates/.github/workflows/`) into a temporary directory, passing every value; keys a template doesn't use are ignored. Run it as one shell command, with `SKILL` and the answer variables (`NAME`, `DESCRIPTION`, `OWNER`, `BRANCH`, `HOLDER`, `LICENSE_NAME`, `CONTACT`, `CONVENTION`, `STACK_COMMANDS`) set in the same shell. For an existing repo, `OWNER` and `NAME` come from `repo=`. A value for a file the repo keeps its own copy of (say `SECURITY_CONTACT` when `SECURITY.md` stays) can be any text; that rendered file is discarded. Private vulnerability reporting exists only on public repos, so offer "private vulnerability reporting only" only when the repo is public; a private repo always needs the email. With that choice, pass any text as `SECURITY_CONTACT` and then delete the sentence `If that is unavailable, contact <...>.` from the rendered `SECURITY.md`.
 
 ```bash
 TMP="$(mktemp -d)"
@@ -192,9 +192,8 @@ jq --argjson n "${APPROVALS:-0}" '.rules |= map(if .type == "pull_request" then 
 - Merge style: set the chosen `allow_*_merge` key in `repo.json` to `true` and the other two to `false`.
 - Existing repo whose wiki is on: ask whether it is in use; if so set `repo.has_wiki` to `true`. A wiki with no pages has no git repository yet, so `git ls-remote https://github.com/OWNER/NAME.wiki.git` failing with "Repository not found" means it is empty.
 - Existing repo with required checks: in `ruleset-default-branch.json`, replace the `ci-ok` entry with the repo's current required check names (step 5, item 1, shows how to find them).
+- Private vulnerability reporting: `repo.json` has `security.private_vulnerability_reporting` set to `enabled`, and step 7 turns it on once the user approves that item, since `SECURITY.md` sends reporters there and it is off on new repos. For a private repo, which cannot have it, add `security.private_vulnerability_reporting` to `declined` with the reason "private repo"; the email in `SECURITY.md` is the channel.
 - Anything the user does not want goes in that file's `declined` list with a reason, as `{"item": "<item id>", "reason": "..."}`. `references/settings-baseline.md` explains every setting and which file each item belongs to.
-
-`SECURITY.md` sends reporters to private vulnerability reporting, which the settings files do not manage. Check it with `gh api repos/OWNER/NAME/private-vulnerability-reporting` (read-only; a new repo once it exists); if it prints `"enabled":false`, list "turn on private vulnerability reporting (Settings, Code security)" as a follow-up in step 8.
 
 For an existing repo, now run `bash ./scripts/repo-settings.sh audit` once (read-only). Its `NOTE` lines show another ruleset on the default branch or classic branch protection. Settle those now, as `references/settings-baseline.md` describes, before the files are committed.
 
