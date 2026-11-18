@@ -47,7 +47,7 @@ test_description_length() {
 # skill_paths: every skill-directory path referenced in SKILL.md, one per line.
 # shellcheck disable=SC2016 # backticks and $SKILL are literal text to match
 skill_paths() {
-  doc_text | grep -oE '(`|\$SKILL/|\]\()(scripts|templates|references|config)/[^`"'"'"' )]*' |
+  doc_text | grep -oE '(`|\$SKILL/|\]\()(scripts|templates|references|config|examples)/[^`"'"'"' )]*' |
     sed -E 's#^(`|\$SKILL/|\]\()##' | sed -E 's#[.,:;]+$##' | sort -u
 }
 
@@ -173,4 +173,48 @@ test_step_gated_example_lints
 test_steps_in_order
 test_required_content
 test_review_rules
+# Packaging: the Claude Code marketplace and plugin manifests live in
+# .claude-plugin/ at the repo root. The marketplace entry's source "./" is the
+# repo root, where the plugin's default skills/ directory holds the skill.
+ROOT="$HERE/.."
+MARKET="$ROOT/.claude-plugin/marketplace.json"
+PLUGIN="$ROOT/.claude-plugin/plugin.json"
+DEFAULTS="$SKILL/examples/defaults.yaml"
+
+test_manifests_valid_json() {
+  have jq || { echo "SKIP - manifests (jq not installed)"; return 0; }
+  local f
+  for f in "$MARKET" "$PLUGIN"; do
+    assert_eq yes "$([ -f "$f" ] && echo yes || echo no)" "$(basename "$f") exists"
+    assert_eq 0 "$(jq -e . "$f" >/dev/null 2>&1 && echo 0 || echo 1)" "$(basename "$f") is valid JSON"
+  done
+  assert_eq initialize-repo "$(jq -r .name "$PLUGIN" 2>/dev/null)" "plugin.json name is initialize-repo"
+  assert_eq MIT "$(jq -r .license "$PLUGIN" 2>/dev/null)" "plugin.json license is MIT"
+  assert_eq initialize-repo "$(jq -r '.plugins[0].name' "$MARKET" 2>/dev/null)" "marketplace entry name matches the plugin"
+}
+
+test_manifest_points_at_skill() {
+  have jq || return 0
+  local src
+  src="$(jq -r '.plugins[0].source' "$MARKET" 2>/dev/null)"
+  assert_eq "./" "$src" "marketplace entry source is the repo root"
+  # No custom "skills" key in plugin.json: the default skills/ dir at the plugin root applies.
+  assert_eq null "$(jq -r '.skills // "null"' "$PLUGIN" 2>/dev/null)" "plugin.json relies on the default skills/ directory"
+  assert_eq yes "$([ -f "$ROOT/$src/skills/initialize-repo/SKILL.md" ] && echo yes || echo no)" \
+    "plugin root resolves skills/initialize-repo/SKILL.md"
+}
+
+test_defaults_example_keys() {
+  local k
+  assert_eq yes "$([ -f "$DEFAULTS" ] && echo yes || echo no)" "examples/defaults.yaml exists"
+  for k in author_name copyright_holder license default_owner default_visibility merge_style required_approvals commit_convention assign_self; do
+    assert_eq 1 "$(grep -cE "^$k:" "$DEFAULTS" 2>/dev/null)" "defaults.yaml has key $k"
+  done
+  assert_eq 9 "$(grep -cE '^[a-z_]+:' "$DEFAULTS" 2>/dev/null)" "defaults.yaml has exactly 9 keys"
+  assert_contains "$(doc_text)" "examples/defaults.yaml" "SKILL.md points at examples/defaults.yaml"
+}
+
+test_manifests_valid_json
+test_manifest_points_at_skill
+test_defaults_example_keys
 finish

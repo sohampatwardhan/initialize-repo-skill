@@ -33,17 +33,7 @@ Commands are plain POSIX shell with `git`, `gh` and `jq`. On Windows use Git Bas
 
 Optional, at `~/.config/initialize-repo/defaults.yaml`. Read it yourself (the scripts never do). It holds flat `key: value` lines; every key is optional, and a missing key is asked for in step 2.
 
-```yaml
-author_name: Your Name
-copyright_holder: Your Name or Company
-license: mit                # a key from: gh api licenses | jq -r '.[].key'
-default_owner: your-login-or-org
-default_visibility: private # public | private | internal
-merge_style: squash         # squash | merge | rebase
-required_approvals: 0
-commit_convention: Conventional Commits
-assign_self: true           # assign issues the skill creates to the user
-```
+See `examples/defaults.yaml` for every key with a comment and placeholder values; the user copies it to that location and edits it.
 
 ## Workflow
 

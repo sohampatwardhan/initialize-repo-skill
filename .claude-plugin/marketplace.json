@@ -1,0 +1,18 @@
+{
+  "name": "initialize-repo-skill",
+  "owner": {
+    "name": "sohampatwardhan"
+  },
+  "metadata": {
+    "description": "Marketplace for the initialize-repo skill."
+  },
+  "plugins": [
+    {
+      "name": "initialize-repo",
+      "source": "./",
+      "description": "Set up a GitHub repo to a professional baseline: standard files, CI that skips heavy work on non-logic changes while required checks still report, and repo settings kept as reviewable code.",
+      "version": "0.1.0",
+      "license": "MIT"
+    }
+  ]
+}

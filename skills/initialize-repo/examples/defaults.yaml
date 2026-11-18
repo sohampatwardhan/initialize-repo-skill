@@ -1,0 +1,22 @@
+# Example preferences for the initialize-repo skill.
+# Copy to ~/.config/initialize-repo/defaults.yaml and edit. Every key is
+# optional; the agent asks for any key that is missing. Scripts never read this file.
+
+# Name written in AUTHORS-style fields and package metadata.
+author_name: Your Name
+# Name shown in the LICENSE copyright line (a person or a company).
+copyright_holder: Your Name or Company
+# A licence key from: gh api licenses | jq -r '.[].key'
+license: mit
+# GitHub user or organisation that owns new repos.
+default_owner: your-login-or-org
+# Visibility for new repos: public | private | internal
+default_visibility: private
+# Allowed merge method: squash | merge | rebase
+merge_style: squash
+# Approvals required before merging a PR (0 suits solo work).
+required_approvals: 0
+# Commit message convention stated in CONTRIBUTING and AGENTS.md.
+commit_convention: Conventional Commits
+# Assign issues the skill creates to you: true | false
+assign_self: true
