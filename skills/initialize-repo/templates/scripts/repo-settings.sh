@@ -2,7 +2,7 @@
 # repo-settings.sh: keep a GitHub repo's settings in sync with committed JSON.
 #
 #   repo-settings.sh <audit|apply> [--repo OWNER/NAME] [--dir DIR] [--dry-run]
-#                    [--all | ITEM ...]
+#                    [--allow-unseen-checks] [--all | ITEM ...]
 #
 # Desired state lives in DIR (default .github/settings). Items are named
 # "<area>.<key>", e.g. repo.allow_auto_merge, security.secret_scanning.
@@ -12,7 +12,10 @@
 # apply  writes the named items (or every differing item with --all).
 #        Prints APPLIED / UNAVAILABLE / FAILED per item; with --dry-run prints
 #        "WOULD<TAB>METHOD endpoint" and calls nothing.
-#        Exit 0 all applied, 1 any failed, 3 some unavailable and none failed.
+#        Prints BLOCKED when a guard holds an item back (the ruleset area's
+#        required-check guard; --allow-unseen-checks skips it).
+#        Exit 0 all applied; otherwise the first that applies of: 2 error,
+#        1 any FAILED, 4 any BLOCKED, 3 any UNAVAILABLE.
 #
 # Adding an area <a> (see the "area hook contract" below): define the hook
 # functions and append <a> to AREAS. The dispatcher itself does not change.
@@ -36,7 +39,7 @@
 # Needs bash 3.2+, git, gh, jq. gh is called as "${GH:-gh}".
 set -u
 
-AREAS="repo security labels"
+AREAS="repo security labels ruleset"
 
 MODE=""
 REPO=""
@@ -49,6 +52,8 @@ DIFF_ITEMS=""    # newline-separated item ids that differ
 HAD_ERROR=0
 FAILED_N=0
 UNAVAIL_N=0
+BLOCKED_N=0      # items held back by a guard (exit 4)
+ALLOW_UNSEEN=0   # --allow-unseen-checks: skip the ruleset required-check guard
 TAB="$(printf '\t')"
 NL='
 '
@@ -63,7 +68,7 @@ ERRF=""
 
 usage() {
   cat >&2 <<'USAGE'
-usage: repo-settings.sh <audit|apply> [--repo OWNER/NAME] [--dir DIR] [--dry-run] [--all | ITEM ...]
+usage: repo-settings.sh <audit|apply> [--repo OWNER/NAME] [--dir DIR] [--dry-run] [--allow-unseen-checks] [--all | ITEM ...]
 USAGE
   exit 2
 }
@@ -413,6 +418,304 @@ apply_labels() {
   fi
 }
 
+# ---- area: ruleset ----------------------------------------------------------
+# ruleset-default-branch.json: a repository-ruleset request body (name, target,
+# enforcement, conditions, bypass_actors, rules) plus an optional top-level
+# "declined" that is never sent. One item: "ruleset.<name>".
+#
+# Comparison: both sides are normalized to {enforcement, conditions,
+# bypass_actors, rules (sorted by type)} and compared with jq -S. GitHub fills
+# default parameters into the rules it returns, so for each rule type the live
+# parameters are projected onto the parameter keys the desired rule names
+# (and required-status-check entries onto the keys desired entries use).
+# Parameters the config omits are therefore not compared.
+#
+# apply runs a guard first: every required status check context must already
+# have run (check run or commit status) on the default branch head or on the
+# head of the most recently merged PR; otherwise BLOCKED (exit 4), unless
+# --allow-unseen-checks.
+
+RS_FILE="ruleset-default-branch.json"
+RS_DESIRED=""      # request body: the config without "declined" (compact JSON)
+RS_LOADED=0
+RS_LIST=""         # JSON array from the rulesets list (all pages)
+RS_PLAN_MSG=""     # set when rulesets cannot be read on this plan (HTTP 403)
+RS_LIVE_LOADED=0
+RS_ID=""           # id of the live ruleset with the configured name ("" if none)
+RS_LIVE=""         # its full JSON (GET by id)
+RS_BRANCH=""       # default branch name
+RS_SEEN=""         # newline-separated check names / status contexts seen
+
+# jq definitions: norm($d) normalizes a ruleset against the desired one ($d).
+# shellcheck disable=SC2016 # jq program
+RS_JQ='
+def proj($dp):
+  if type == "object" and ($dp | type) == "object" then
+    with_entries(select(.key as $k | $dp | has($k)))
+    | if (.required_status_checks | type) == "array" and ($dp.required_status_checks | type) == "array" then
+        ([$dp.required_status_checks[] | objects | keys[]] | unique) as $ck
+        | .required_status_checks |= map(if type == "object" then with_entries(select(.key as $k | $ck | index($k))) else . end)
+      else . end
+  else . end;
+def sortchecks:
+  if (.required_status_checks | type) == "array" then .required_status_checks |= sort_by(.context) else . end;
+def norm($d):
+  {
+    enforcement: .enforcement,
+    conditions: {ref_name: {include: ((.conditions.ref_name.include // []) | sort),
+                            exclude: ((.conditions.ref_name.exclude // []) | sort)}},
+    bypass_actors: ((.bypass_actors // [])
+      | map({actor_id, actor_type, bypass_mode: (.bypass_mode // "always")})
+      | sort_by(.actor_type, .actor_id)),
+    rules: ((.rules // []) | map(
+      . as $r
+      | ([($d.rules // [])[] | select(.type == $r.type)] | first) as $dr
+      | {type: .type}
+        + ((if $dr == null then (.parameters // {}) else ((.parameters // {}) | proj($dr.parameters // {})) end)
+           | sortchecks
+           | if . == {} then {} else {parameters: .} end)
+    ) | sort_by(.type))
+  };
+'
+
+config_file_ruleset() { echo "$RS_FILE"; }
+
+rs_name() { jq -r '.name' "$DIR/$RS_FILE"; }
+
+validate_ruleset() {
+  local f="$DIR/$RS_FILE"
+  jq -e '(.name | type) == "string" and (.name | test("^[^\u0000-\u001f]+$"))' "$f" >/dev/null 2>&1 \
+    || die "$f: \"name\" must be a non-empty string"
+  jq -e '(.enforcement | type) == "string"' "$f" >/dev/null 2>&1 || die "$f: \"enforcement\" must be a string"
+  jq -e '(.rules | type) == "array" and all(.rules[]; type == "object" and (.type | type) == "string")' "$f" >/dev/null 2>&1 \
+    || die "$f: \"rules\" must be an array of objects with a string \"type\""
+  jq -e '[.rules[].type] | length == (unique | length)' "$f" >/dev/null 2>&1 \
+    || die "$f: each rule type may appear only once in \"rules\""
+  jq -e 'all(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?;
+             (.context | type) == "string" and (.context | test("^[^\u0000-\u001f]+$")))' "$f" >/dev/null 2>&1 \
+    || die "$f: every required status check needs a string \"context\""
+  jq -e '(.declined // []) | type == "array"' "$f" >/dev/null 2>&1 || die "$f: \"declined\" must be an array"
+  RS_DESIRED="$(jq -c 'del(.declined)' "$f")"
+}
+
+declined_ruleset() { jq -r '.declined[]? | [.item, (.reason // "")] | join("\t")' "$DIR/$RS_FILE"; }
+
+has_ruleset() { [ "$1" = "ruleset.$(rs_name)" ]; }
+
+# rs_note <text>: print a NOTE line (suppressed in the quiet pre-audit of --all).
+rs_note() { [ "$QUIET" -eq 1 ] || printf 'NOTE%s%s\n' "$TAB" "$1"; }
+
+uri() { jq -rn --arg s "$1" '$s | @uri'; }
+
+# rs_norm <ruleset-json>: normalized, key-sorted JSON (projected onto desired).
+rs_norm() {
+  printf '%s' "$1" | jq -S --argjson d "$RS_DESIRED" "$RS_JQ norm(\$d)"
+}
+
+# load_rulesets: list every ruleset (all pages) once. A 403 means the plan has
+# no rulesets: RS_PLAN_MSG is set and the list is empty. 1 after reporting.
+load_rulesets() {
+  [ "$RS_LOADED" -eq 1 ] && return 0
+  local raw
+  if raw="$("${GH:-gh}" api --paginate "repos/$REPO/rulesets?per_page=100" 2>"$ERRF")"; then
+    RS_LIST="$(printf '%s' "$raw" | jq -sc 'add // []' 2>/dev/null)"
+    if [ -z "$RS_LIST" ]; then
+      soft_error "cannot parse the ruleset list from repos/$REPO/rulesets"
+      return 1
+    fi
+  else
+    GH_ERR="$(cat "$ERRF")"
+    case "$GH_ERR" in
+      *"(HTTP 403)"*) RS_LIST='[]'; RS_PLAN_MSG="$(gh_msg)" ;;
+      *) soft_error "cannot read repos/$REPO/rulesets: $(gh_msg)"; return 1 ;;
+    esac
+  fi
+  RS_LOADED=1
+}
+
+# rs_load_live: find the configured ruleset by name and GET it by id once.
+# Only the repository's own rulesets count (not ones inherited from the org).
+rs_load_live() {
+  [ "$RS_LIVE_LOADED" -eq 1 ] && return 0
+  load_rulesets || return 1
+  RS_ID="$(printf '%s' "$RS_LIST" | jq -r --arg n "$(rs_name)" \
+    '[.[] | select(.name == $n and (.source_type // "Repository") == "Repository")] | first | .id // empty')"
+  if [ -n "$RS_ID" ]; then
+    if ! gh_get "repos/$REPO/rulesets/$RS_ID"; then
+      soft_error "cannot read repos/$REPO/rulesets/$RS_ID: $(gh_msg)"
+      return 1
+    fi
+    RS_LIVE="$GH_OUT"
+  fi
+  RS_LIVE_LOADED=1
+}
+
+# rs_default_branch: set RS_BRANCH; 1 after reporting.
+rs_default_branch() {
+  [ -n "$RS_BRANCH" ] && return 0
+  load_repo_json || return 1
+  RS_BRANCH="$(printf '%s' "$REPO_JSON" | jq -r '.default_branch // empty')"
+  if [ -z "$RS_BRANCH" ]; then
+    soft_error "cannot determine the default branch of $REPO"
+    return 1
+  fi
+}
+
+# rs_other_notes: NOTE each other branch ruleset that targets the default branch.
+rs_other_notes() {
+  local id name
+  while IFS="$TAB" read -r id name <&5; do
+    [ -n "$id" ] || continue
+    if ! gh_get "repos/$REPO/rulesets/$id"; then
+      case "$GH_ERR" in
+        *"(HTTP 403)"* | *"(HTTP 404)"*) continue ;;
+        *) soft_error "cannot read repos/$REPO/rulesets/$id: $(gh_msg)"; continue ;;
+      esac
+    fi
+    if printf '%s' "$GH_OUT" | jq -e --arg b "refs/heads/$RS_BRANCH" \
+      '(.conditions.ref_name.include // []) | any(. == "~DEFAULT_BRANCH" or . == $b)' >/dev/null 2>&1; then
+      rs_note "other ruleset targets default branch: $(one_line "$name")"
+    fi
+  done 5<<EOF_RS
+$(printf '%s' "$RS_LIST" | jq -r --arg own "$RS_ID" '.[] | select((.id | tostring) != $own and (.target // "branch") == "branch") | [(.id | tostring), .name] | @tsv')
+EOF_RS
+}
+
+# rs_classic_note: NOTE when classic branch protection is on the default branch.
+rs_classic_note() {
+  if gh_get "repos/$REPO/branches/$(uri "$RS_BRANCH")/protection"; then
+    rs_note "classic branch protection is enabled on $RS_BRANCH"
+    return 0
+  fi
+  case "$GH_ERR" in
+    *"(HTTP 404)"* | *"(HTTP 403)"*) ;; # none, or not available on this plan
+    *) soft_error "cannot read branch protection for $RS_BRANCH: $(gh_msg)" ;;
+  esac
+}
+
+# rs_print_diff <live-normalized|""> <desired-normalized>: unified diff, each
+# line prefixed with two spaces (git is a runtime dependency; diff(1) is not).
+rs_print_diff() {
+  local a b
+  a="$(mktemp)" || return 0
+  b="$(mktemp)" || { rm -f "$a"; return 0; }
+  [ -z "$1" ] || printf '%s\n' "$1" >"$a"
+  printf '%s\n' "$2" >"$b"
+  git --no-pager diff --no-index --no-color --no-ext-diff "$a" "$b" 2>/dev/null | sed -n '/^@@/,$s/^/  /p'
+  rm -f "$a" "$b"
+}
+
+audit_ruleset() {
+  local item live_n want_n
+  item="ruleset.$(rs_name)"
+  is_declined "$item" && return 0
+  rs_default_branch || return 0
+  rs_load_live || return 0
+  want_n="$(rs_norm "$RS_DESIRED")"
+  if [ -n "$RS_PLAN_MSG" ]; then
+    rs_note "$item${TAB}rulesets are not available on this plan: $RS_PLAN_MSG"
+  elif [ -z "$RS_ID" ]; then
+    emit_diff "$item" missing present
+    [ "$QUIET" -eq 1 ] || rs_print_diff "" "$want_n"
+  else
+    live_n="$(rs_norm "$RS_LIVE")"
+    if [ "$live_n" != "$want_n" ]; then
+      emit_diff "$item" differs present
+      [ "$QUIET" -eq 1 ] || rs_print_diff "$live_n" "$want_n"
+    fi
+  fi
+  rs_other_notes
+  rs_classic_note
+}
+
+# rs_collect_checks <ref>: add the check-run names and commit-status contexts
+# of <ref> to RS_SEEN. A missing ref (404/409/422) adds nothing. 1 on error.
+rs_collect_checks() {
+  local ref="$1" raw
+  if raw="$("${GH:-gh}" api --paginate "repos/$REPO/commits/$ref/check-runs?per_page=100" 2>"$ERRF")"; then
+    RS_SEEN="$RS_SEEN$(printf '%s' "$raw" | jq -rs '.[].check_runs[]?.name' 2>/dev/null)$NL"
+  else
+    GH_ERR="$(cat "$ERRF")"
+    case "$GH_ERR" in
+      *"(HTTP 404)"* | *"(HTTP 409)"* | *"(HTTP 422)"*) ;;
+      *) soft_error "cannot read check runs for $ref: $(gh_msg)"; return 1 ;;
+    esac
+  fi
+  if gh_get "repos/$REPO/commits/$ref/status"; then
+    RS_SEEN="$RS_SEEN$(printf '%s' "$GH_OUT" | jq -r '.statuses[]?.context' 2>/dev/null)$NL"
+  else
+    case "$GH_ERR" in
+      *"(HTTP 404)"* | *"(HTTP 409)"* | *"(HTTP 422)"*) ;;
+      *) soft_error "cannot read commit statuses for $ref: $(gh_msg)"; return 1 ;;
+    esac
+  fi
+}
+
+# rs_unseen <contexts>: print the contexts (one per line) not in RS_SEEN.
+rs_unseen() {
+  local ctx
+  while IFS= read -r ctx; do
+    [ -n "$ctx" ] || continue
+    case "$NL$RS_SEEN$NL" in
+      *"$NL$ctx$NL"*) ;;
+      *) printf '%s\n' "$ctx" ;;
+    esac
+  done <<EOF_CTX
+$1
+EOF_CTX
+}
+
+# rs_guard <item>: 0 if every required check has run; else prints BLOCKED (or
+# reports a read error) and returns 1.
+rs_guard() {
+  local item="$1" ctxs unseen sha ctx
+  ctxs="$(printf '%s' "$RS_DESIRED" | jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context')"
+  [ -n "$ctxs" ] || return 0
+  rs_default_branch || return 1
+  RS_SEEN=""
+  rs_collect_checks "$(uri "$RS_BRANCH")" || return 1
+  unseen="$(rs_unseen "$ctxs")"
+  if [ -n "$unseen" ]; then
+    if gh_get "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=10"; then
+      sha="$(printf '%s' "$GH_OUT" | jq -r '[.[]? | select(.merged_at != null)] | first | .head.sha // empty' 2>/dev/null)"
+      if [ -n "$sha" ]; then
+        rs_collect_checks "$sha" || return 1
+        unseen="$(rs_unseen "$ctxs")"
+      fi
+    else
+      case "$GH_ERR" in
+        *"(HTTP 404)"*) ;;
+        *) soft_error "cannot read recent pull requests: $(gh_msg)"; return 1 ;;
+      esac
+    fi
+  fi
+  [ -n "$unseen" ] || return 0
+  while IFS= read -r ctx; do
+    [ -n "$ctx" ] || continue
+    printf 'BLOCKED%s%s%srequired check %s has not run on %s yet; merge the setup PR and re-run\n' \
+      "$TAB" "$item" "$TAB" "$(one_line "$ctx")" "$RS_BRANCH"
+  done <<EOF_UNSEEN
+$unseen
+EOF_UNSEEN
+  BLOCKED_N=$((BLOCKED_N + 1))
+  return 1
+}
+
+apply_ruleset() {
+  local item="$1" vf
+  if [ "$ALLOW_UNSEEN" -eq 0 ]; then
+    rs_guard "$item" || return 0
+  fi
+  rs_load_live || return 0
+  # The response (the ruleset as GitHub stored it) must normalize to desired.
+  vf="$RS_JQ ($RS_DESIRED) as \$D | if norm(\$D) == (\$D | norm(\$D)) then \"matching\" else \"different\" end"
+  if [ -n "$RS_ID" ]; then
+    write_item "$item" PUT "repos/$REPO/rulesets/$RS_ID" "$RS_DESIRED" "$vf" matching "the ruleset"
+  else
+    write_item "$item" POST "repos/$REPO/rulesets" "$RS_DESIRED" "$vf" matching "the ruleset"
+  fi
+}
+
 # ---- dispatcher -------------------------------------------------------------
 
 area_known() {
@@ -480,6 +783,7 @@ $todo
 EOF_TODO
   [ "$HAD_ERROR" -eq 0 ] || exit 2
   [ "$FAILED_N" -eq 0 ] || exit 1
+  [ "$BLOCKED_N" -eq 0 ] || exit 4
   [ "$UNAVAIL_N" -eq 0 ] || exit 3
   exit 0
 }
@@ -502,14 +806,15 @@ main() {
       --dir) [ $# -ge 2 ] || usage; DIR="$2"; shift 2 ;;
       --dry-run) DRY_RUN=1; shift ;;
       --all) ALL=1; shift ;;
+      --allow-unseen-checks) ALLOW_UNSEEN=1; shift ;;
       -h | --help) usage ;;
       -*) die "unknown option: $1" ;;
       *) ITEMS="$ITEMS$1$NL"; shift ;;
     esac
   done
 
-  if [ "$MODE" = audit ] && { [ -n "$ITEMS" ] || [ "$ALL" -eq 1 ] || [ "$DRY_RUN" -eq 1 ]; }; then
-    die "audit takes no items, --all or --dry-run"
+  if [ "$MODE" = audit ] && { [ -n "$ITEMS" ] || [ "$ALL" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || [ "$ALLOW_UNSEEN" -eq 1 ]; }; then
+    die "audit takes no items, --all, --dry-run or --allow-unseen-checks"
   fi
   if [ "$MODE" = apply ]; then
     { [ -n "$ITEMS" ] || [ "$ALL" -eq 1 ]; } || die "apply needs --all or at least one ITEM"
