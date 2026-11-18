@@ -117,7 +117,7 @@ test_markdown_lint() {
   local files
   files="$(find "$OUT/r" -name "*.md" ! -name CLAUDE.md | sort)" # CLAUDE.md is exactly @AGENTS.md, which cannot start with a heading
   # shellcheck disable=SC2086
-  (cd "$ROOT" && npx --yes markdownlint-cli2@0.24.1 --config .markdownlint-cli2.jsonc $files >"$OUT/lint.log" 2>&1)
+  (cd "$ROOT" && npx --yes markdownlint-cli2@0.24.0 --config .markdownlint-cli2.jsonc $files >"$OUT/lint.log" 2>&1)
   local rc=$?
   assert_eq 0 "$rc" "markdownlint-cli2 passes on rendered markdown"
   [ "$rc" -eq 0 ] || cat "$OUT/lint.log" >&2
