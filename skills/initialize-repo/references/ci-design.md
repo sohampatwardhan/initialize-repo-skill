@@ -27,7 +27,7 @@ When you change the patterns, add a case for each change to `scripts/ci-scope.te
 
 ## The scope job
 
-The `scope` job checks out with `fetch-depth: 2` and, on `pull_request`, runs `git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh`. On a pull request `HEAD` is GitHub's merge commit and `HEAD^1` is the base branch tip, so the diff is exactly what the pull request changes. No third-party action is involved. On `push` (and `workflow_dispatch`) the scope is always `logic`, so the default branch is always fully checked. The job exposes `outputs.logic` as `true` or `false`.
+The `scope` job checks out with `fetch-depth: 2` and, on `pull_request`, runs `git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh`. On a pull request `HEAD` is GitHub's merge commit and `HEAD^1` is the base branch tip, so the diff is exactly what the pull request changes. No third-party action is involved. On `push` (and `workflow_dispatch`) the scope is always `logic`, so the default branch is always fully checked. The job exposes `outputs.logic` as `true` or `false`. It is `false` only when the script prints exactly `non-logic`; any other output (empty, a typo, a value added later) gives `true`, so a broken classifier runs CI instead of skipping it.
 
 The scope tests run on every pull request too, so a broken pattern edit fails CI: the new-repo template runs `bash scripts/ci-scope.test.sh` in its always-on `checks` job, and the step-gated example runs it in `scope`.
 
