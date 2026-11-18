@@ -1,0 +1,62 @@
+name: ci
+
+# Heavy jobs (lint/test) run only when a change touches logic. The single
+# required check, ci-ok, always reports so docs-only PRs are never stuck pending.
+# Do not add on.paths / on.paths-ignore: a skipped workflow leaves required checks pending.
+on:
+  pull_request:
+  push:
+    branches: [{{DEFAULT_BRANCH}}]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      logic: ${{ steps.scope.outputs.logic }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - id: scope
+        name: Classify changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # HEAD is GitHub's merge commit; HEAD^1 is the base branch tip.
+            kind=$(git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh)
+          else
+            kind=logic
+          fi
+          if [ "$kind" = "logic" ]; then
+            echo "logic=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "logic=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Scope classifier tests
+        run: bash scripts/ci-scope.test.sh
+
+  # {{STACK_JOBS}}
+
+  ci-ok:
+    needs: [scope, checks, lint, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require upstream jobs to pass (skipped counts as success)
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [ "$FAILED" = "true" ]; then
+            echo "A required job failed or was cancelled" >&2
+            exit 1
+          fi
