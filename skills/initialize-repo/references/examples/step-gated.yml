@@ -1,0 +1,70 @@
+# Step-level gating for a repo whose job names are already required checks.
+#
+# The required checks here are "test (ubuntu-latest)" and "test (macos-latest)".
+# Every job runs and reports on every PR, so those names never wait on
+# "pending". On a docs-only PR each heavy step is skipped and the job finishes
+# green in seconds.
+#
+# Rules this file follows (see ../ci-design.md):
+# - No on.paths / on.paths-ignore on the trigger.
+# - No job-level if: on the matrix job. A job-level if that is false skips the
+#   job before the matrix expands, so the per-matrix check names never report.
+# - Each heavy step carries if: needs.scope.outputs.logic == 'true'.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      logic: ${{ steps.scope.outputs.logic }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Scope classifier tests
+        run: bash scripts/ci-scope.test.sh
+      - id: scope
+        name: Classify changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # HEAD is GitHub's merge commit; HEAD^1 is the base branch tip.
+            kind=$(git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh)
+          else
+            kind=logic
+          fi
+          if [ "$kind" = "logic" ]; then
+            echo "logic=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "logic=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: scope
+    # No job-level if: here. The job must start so every matrix name reports.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Heavy steps skipped
+        if: needs.scope.outputs.logic != 'true'
+        run: echo "Only non-logic files changed; build and test steps are skipped."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.scope.outputs.logic == 'true'
+      - name: Build
+        if: needs.scope.outputs.logic == 'true'
+        run: cargo build --locked
+      - name: Test
+        if: needs.scope.outputs.logic == 'true'
+        run: cargo test --locked
