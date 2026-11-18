@@ -34,5 +34,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Ensure jq
         run: command -v jq >/dev/null || sudo apt-get install -y jq
+      - name: Ensure yq
+        run: command -v yq >/dev/null || { echo "yq is required but not found on this runner" >&2; exit 1; }
+      - name: Install actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7 "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Run tests
         run: bash tests/run-all.sh
