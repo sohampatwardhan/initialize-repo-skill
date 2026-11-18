@@ -31,6 +31,15 @@ fi
 
 classify() { printf '%s\n' "$@" | bash "$SCOPE"; }
 
+test_changelog_override() {
+  local tmp
+  tmp="$(mktemp -d)"
+  sed -e "s/^  # 'CHANGELOG.md'/  'CHANGELOG.md'/" "$SCOPE" >"$tmp/ci-scope.sh"
+  assert_eq logic "$(printf 'CHANGELOG.md\n' | bash "$tmp/ci-scope.sh")" "uncommented CHANGELOG.md is logic"
+  assert_eq non-logic "$(printf 'README.md\n' | bash "$tmp/ci-scope.sh")" "README.md stays non-logic"
+  rm -rf "${tmp:?}"
+}
+
 test_readme_only()       { assert_eq non-logic "$(classify README.md)" "README only"; }
 test_nested_docs()       { assert_eq non-logic "$(classify docs/a/b.md guide.txt)" "nested docs and txt"; }
 test_source_file()       { assert_eq logic "$(classify src/main.rs)" "source file"; }
@@ -54,5 +63,6 @@ test_empty_input
 test_path_with_spaces
 test_deleted_doc_only
 test_issue_template
+test_changelog_override
 
 finish
