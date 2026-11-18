@@ -13,7 +13,8 @@
 #   other methods: append "METHOD EP" (plus a "BODY<TAB>json" line when a body
 #          was given) to $FAKE_GH_DIR/calls.log. Then
 #          <name>.<METHOD>.err -> stderr, exit 1; else <name>.<METHOD>.json if
-#          present, else "{}".
+#          present; else for PATCH with a body, the GET fixture deep-merged
+#          with the body (the updated object, as GitHub returns); else "{}".
 set -u
 dir="${FAKE_GH_DIR:?FAKE_GH_DIR not set}"
 
@@ -73,6 +74,9 @@ if [ -f "$dir/$name.$method.err" ]; then
 fi
 if [ -f "$dir/$name.$method.json" ]; then
   cat "$dir/$name.$method.json"
+elif [ "$method" = "PATCH" ] && [ -n "$body" ] && [ -s "$dir/$name.json" ]; then
+  # Like GitHub: PATCH answers with the updated object (GET fixture + body).
+  jq -c --argjson b "$body" '. * $b' "$dir/$name.json"
 else
   echo '{}'
 fi
