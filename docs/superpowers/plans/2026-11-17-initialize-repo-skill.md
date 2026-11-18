@@ -37,6 +37,74 @@
 
 ---
 
+## Status (RAG)
+
+Each task's status comes from its GitHub issue:
+
+- **Green, Done:** the issue is closed.
+- **Amber, Ready:** the issue is open and nothing blocking it is still open.
+- **Red, Blocked:** the issue is open and at least one issue blocking it is still open.
+
+Arrows show "must finish before". Every label also states the status, so the chart doesn't rely on color alone. Snapshot: 2026-11-18.
+
+```mermaid
+flowchart LR
+  subgraph n_g_found["Foundations"]
+    T1@{ shape: rect, label: "T1 · #2 Test harness and CI · Ready" }
+  end
+  subgraph n_g_ci["Logic-scoped CI"]
+    T2@{ shape: rect, label: "T2 · #3 ci-scope.sh · Blocked" }
+    T3@{ shape: rect, label: "T3 · #4 render.sh · Blocked" }
+    T4@{ shape: rect, label: "T4 · #5 CI template · Blocked" }
+  end
+  subgraph n_g_settings["Settings as code"]
+    T5@{ shape: rect, label: "T5 · #6 repo-settings core · Blocked" }
+    T6@{ shape: rect, label: "T6 · #7 Labels · Blocked" }
+    T7@{ shape: rect, label: "T7 · #8 Ruleset and guard · Blocked" }
+  end
+  subgraph n_g_skill["Skill"]
+    T8@{ shape: rect, label: "T8 · #9 preflight.sh · Blocked" }
+    T9@{ shape: rect, label: "T9 · #10 Content templates · Blocked" }
+    T10@{ shape: rect, label: "T10 · #11 SKILL.md · Blocked" }
+  end
+  subgraph n_g_release["Release"]
+    T11@{ shape: rect, label: "T11 · #12 Packaging · Blocked" }
+    T12@{ shape: rect, label: "T12 · #13 Dogfood · Blocked" }
+  end
+  T1 --> T2
+  T1 --> T3
+  T1 --> T5
+  T1 --> T8
+  T2 --> T4
+  T3 --> T4
+  T3 --> T9
+  T5 --> T6
+  T5 --> T7
+  T4 --> T10
+  T6 --> T10
+  T7 --> T10
+  T8 --> T10
+  T9 --> T10
+  T10 --> T11
+  T11 --> T12
+  classDef green fill:#d1e7dd,stroke:#146c43,color:#0a3622
+  classDef amber fill:#fff3cd,stroke:#997404,color:#664d03
+  classDef red fill:#f8d7da,stroke:#b02a37,color:#58151c
+  class T1 amber
+  class T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12 red
+```
+
+To refresh the chart, re-derive the statuses after any issue closes:
+
+```bash
+gh api graphql -f query='{repository(owner:"sohampatwardhan",name:"initialize-repo-skill"){issues(first:20){nodes{number state blockedBy(first:10){nodes{state}}}}}}' \
+  --jq '.data.repository.issues.nodes[] | select(.number>1) | "#\(.number) \(if .state=="CLOSED" then "green" elif ([.blockedBy.nodes[]|select(.state=="OPEN")]|length)>0 then "red" else "amber" end)"'
+```
+
+Issue #N is task T(N-1). Update each node's `class` line and its Done/Ready/Blocked label to match.
+
+---
+
 ## File Map
 
 ```text
@@ -70,9 +138,11 @@ README.md, AGENTS.md, CLAUDE.md, … (dogfood)   # T12
 ### Task 1: Test harness and this repo's CI
 
 **Files:**
+
 - Create: `tests/lib/assert.sh`, `tests/run-all.sh`, `tests/harness.test.sh`, `.github/workflows/ci.yml`, `.gitignore`
 
 **Interfaces:**
+
 - Produces:
   - `assert_eq <expected> <actual> <msg>`
   - `assert_contains <haystack> <needle> <msg>`
@@ -100,9 +170,11 @@ README.md, AGENTS.md, CLAUDE.md, … (dogfood)   # T12
 ### Task 2: `ci-scope.sh` classifier
 
 **Files:**
+
 - Create: `skills/initialize-repo/templates/scripts/ci-scope.sh`, `skills/initialize-repo/templates/scripts/ci-scope.test.sh`
 
 **Interfaces:**
+
 - Produces: `ci-scope.sh` reads newline-separated paths on stdin and prints exactly `logic` or `non-logic`. It always exits 0 on valid input.
   - Empty input → `logic`.
   - Patterns live between the marker lines `# BEGIN SCOPE PATTERNS` and `# END SCOPE PATTERNS`, as two bash arrays: `NON_LOGIC` and `ALWAYS_LOGIC`.
@@ -139,9 +211,11 @@ test_issue_template         # .github/ISSUE_TEMPLATE/bug.yml    -> non-logic
 ### Task 3: `render.sh` template renderer
 
 **Files:**
+
 - Create: `skills/initialize-repo/scripts/render.sh`, `tests/render.test.sh`
 
 **Interfaces:**
+
 - Produces: `render.sh <template> <output> [KEY=VALUE ...] [--insert MARKER=FILE ...]`
   - Replaces every `{{KEY}}` with `VALUE`. Values may contain `/`, `&`, and spaces.
   - `--insert MARKER=FILE` replaces a line whose trimmed content is `# {{MARKER}}` with the contents of FILE, indented to match the marker line.
@@ -169,9 +243,11 @@ test_creates_parent_dirs              # output deep/nested/x -> exists
 ### Task 4: CI workflow template and stack snippets
 
 **Files:**
+
 - Create: `skills/initialize-repo/templates/.github/workflows/ci.yml`, `skills/initialize-repo/templates/ci/{python,node,go,rust,placeholder}.yml`, `tests/ci-template.test.sh`
 
 **Interfaces:**
+
 - Consumes: `render.sh` (T3), `ci-scope.sh` (T2).
 - Produces: a base `ci.yml` with these placeholders:
   - `{{DEFAULT_BRANCH}}`
@@ -217,9 +293,11 @@ test_render_trunk_branch   # DEFAULT_BRANCH=trunk -> yq '.on.push.branches[0]' =
 ### Task 5: `repo-settings.sh` core and repo settings
 
 **Files:**
+
 - Create: `skills/initialize-repo/templates/scripts/repo-settings.sh`, `skills/initialize-repo/config/repo.json`, `tests/fake-gh/gh`, `tests/fixtures/repo-basic/…`, `tests/repo-settings.test.sh`
 
 **Interfaces:**
+
 - Produces: `repo-settings.sh <audit|apply> [--repo OWNER/NAME] [--dir DIR] [--dry-run] [--all | ITEM ...]`
   - Defaults: `--dir .github/settings`; `--repo` comes from `gh repo view --json nameWithOwner`.
   - **Item ids:** `repo.<key>` and `security.<key>`. Later tasks add `labels.<name>` and `ruleset.default-branch`.
@@ -273,10 +351,12 @@ test_missing_settings_dir       # --dir nope -> exit 2, stderr names the dir
 ### Task 6: Labels area
 
 **Files:**
+
 - Modify: `skills/initialize-repo/templates/scripts/repo-settings.sh`
 - Create: `skills/initialize-repo/config/labels.json`, `tests/labels.test.sh`, fixtures
 
 **Interfaces:**
+
 - Consumes: the dispatcher, the fake `gh`, and the output and exit conventions from T5.
 - Produces:
   - **`labels.json` shape:** `{"labels": [{"name", "color", "description"}], "declined": [...]}`.
@@ -303,10 +383,12 @@ test_label_with_space           # "good first issue" color diff -> PATCH .../lab
 ### Task 7: Ruleset area, check guard, and existing-protection notes
 
 **Files:**
+
 - Modify: `skills/initialize-repo/templates/scripts/repo-settings.sh`
 - Create: `skills/initialize-repo/config/ruleset-default-branch.json`, `tests/ruleset.test.sh`, fixtures
 
 **Interfaces:**
+
 - Consumes: T5 conventions.
 - Produces:
   - **`ruleset-default-branch.json`:** a ruleset request body, named `default-branch`, with an optional top-level `"declined"`, which is stripped before sending.
@@ -355,9 +437,11 @@ test_classic_protection_note           # protection fixture present -> NOTE line
 ### Task 8: `preflight.sh`
 
 **Files:**
+
 - Create: `skills/initialize-repo/scripts/preflight.sh`, `tests/preflight.test.sh`
 
 **Interfaces:**
+
 - Produces: `preflight.sh [DIR]` (default `.`) prints `key=value` lines and exits 0 when the skill can proceed, or 1 with `error=<message>` lines that name the fix.
   - **Keys:**
     - `git`, `gh`, `jq`: each `ok` or `missing`
@@ -397,6 +481,7 @@ test_issue_types_absent           # graphql issueTypes [] -> issue_types=no
 ### Task 9: Content templates and GitHub workflow guidance
 
 **Files:**
+
 - Create:
   - `skills/initialize-repo/templates/{README,AGENTS,CLAUDE,CHANGELOG,CONTRIBUTING,SECURITY}.md` and `templates/.editorconfig`
   - `templates/.github/ISSUE_TEMPLATE/{bug,feature,task,config}.yml`, `templates/.github/pull_request_template.md`, `templates/.github/dependabot.yml`
@@ -404,6 +489,7 @@ test_issue_types_absent           # graphql issueTypes [] -> issue_types=no
   - `tests/smoke.test.sh`
 
 **Interfaces:**
+
 - Consumes: `render.sh` (T3).
 - Produces: templates using only these placeholders: `PROJECT_NAME`, `DESCRIPTION`, `OWNER`, `REPO`, `DEFAULT_BRANCH`, `YEAR`, `COPYRIGHT_HOLDER`, `LICENSE_NAME`, `SECURITY_CONTACT`, `COMMIT_CONVENTION`, `STACK_COMMANDS`.
   - **`AGENTS.md`** contains these sections, verbatim headings:
@@ -438,9 +524,11 @@ test_markdown_lint             # markdownlint-cli2 on rendered *.md exits 0 (SKI
 ### Task 10: `SKILL.md` and remaining references
 
 **Files:**
+
 - Create: `skills/initialize-repo/SKILL.md`, `skills/initialize-repo/references/settings-baseline.md`, `skills/initialize-repo/references/ci-design.md`, `skills/initialize-repo/references/examples/step-gated.yml`, `tests/skill.test.sh`
 
 **Interfaces:**
+
 - Consumes: every script and template, with the interfaces from T2–T9.
 - Produces:
   - **`SKILL.md` frontmatter:**
@@ -474,10 +562,12 @@ test_steps_in_order            # SKILL.md headings contain Preflight, Gather, Cr
 ### Task 11: Packaging for the three install channels
 
 **Files:**
+
 - Create: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json` (or wherever current docs put it), `skills/initialize-repo/examples/defaults.yaml`
 - Modify: `tests/skill.test.sh` (add manifest checks)
 
 **Interfaces:**
+
 - Consumes: the skill folder (T10).
 - Produces:
   - A Claude Code marketplace entry that installs the plugin containing `skills/initialize-repo`.
@@ -503,6 +593,7 @@ test_defaults_example_keys     # defaults.yaml contains all 9 keys from the spec
 ### Task 12: Dogfood: initialize this repo with the skill
 
 **Files:**
+
 - Create via the skill:
   - `README.md` (with install steps for all three channels), `AGENTS.md`, `CLAUDE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `.editorconfig`
   - `.github/ISSUE_TEMPLATE/*`, `.github/pull_request_template.md`, `.github/dependabot.yml`
@@ -512,6 +603,7 @@ test_defaults_example_keys     # defaults.yaml contains all 9 keys from the spec
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
+
 - Consumes: the whole skill.
 - Produces:
   - **This repo's `scripts/ci-scope.sh`:** `ALWAYS_LOGIC` also includes `'skills/*'` and `'tests/*'`.

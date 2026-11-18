@@ -219,6 +219,90 @@ there's one script, not two.
 9. **Offer a proof PR.** Offer to open a one-line docs PR that shows the skip
    working for real. Never opened without a yes.
 
+#### Workflow diagram
+
+```mermaid
+flowchart TD
+  start@{ shape: stadium, label: "Run the skill" }
+  pre@{ shape: subproc, label: "Run preflight.sh" }
+  preok@{ shape: diamond, label: "git, gh, jq, auth and scopes OK?" }
+  stopfix@{ shape: stadium, label: "Stop and name the fix" }
+  sit@{ shape: diamond, label: "Situation?" }
+  gather@{ shape: lean-r, label: "Ask what preferences and the repo don't answer" }
+  isnew@{ shape: diamond, label: "New repo?" }
+  create@{ shape: rect, label: "Create the repo with gh repo create" }
+  writeall@{ shape: rect, label: "Write all files and .github/settings" }
+  push@{ shape: rect, label: "Commit and push to the default branch" }
+  waitci@{ shape: rect, label: "Wait for the first CI run" }
+  writemerge@{ shape: rect, label: "Add missing files, ask before changing existing ones" }
+  adaptci@{ shape: rect, label: "Adapt existing CI with step-level gating and backtest" }
+  pr@{ shape: rect, label: "Commit on a branch and open the setup PR" }
+  audit@{ shape: subproc, label: "Run repo-settings.sh audit" }
+  approve@{ shape: lean-r, label: "User approves settings items" }
+  apply@{ shape: subproc, label: "Run repo-settings.sh apply" }
+  blocked@{ shape: diamond, label: "Ruleset blocked by an unseen check?" }
+  stopmerge@{ shape: stadium, label: "Stop: merge the setup PR and run again" }
+  summary@{ shape: lean-r, label: "Report files, settings, skipped and declined items" }
+  proof@{ shape: lean-r, label: "Offer a proof docs PR" }
+  finish@{ shape: stadium, label: "Done" }
+  start --> pre
+  pre --> preok
+  preok -->|"no"| stopfix
+  preok -->|"yes"| sit
+  sit -->|"new or existing-first"| gather
+  sit -->|"configured"| audit
+  gather --> isnew
+  isnew -->|"yes"| create
+  create --> writeall
+  writeall --> push
+  push --> waitci
+  waitci --> audit
+  isnew -->|"no"| writemerge
+  writemerge --> adaptci
+  adaptci --> pr
+  pr --> audit
+  audit --> approve
+  approve --> apply
+  apply --> blocked
+  blocked -->|"yes"| stopmerge
+  blocked -->|"no"| summary
+  summary --> proof
+  proof --> finish
+```
+
+#### Settings audit and apply
+
+The user, the agent, `repo-settings.sh`, and GitHub interact in step 7 as follows. This is where the required-check guard enforces the two-run flow for existing repos.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Agent
+    participant Script
+    participant GitHub
+    Agent->>Script: audit
+    Script->>GitHub: GET repo, security, labels, rulesets, protection
+    GitHub-->>Script: live state
+    Note over Script: compare with .github/settings, skip declined
+    Script-->>Agent: DIFF and NOTE lines
+    Agent->>User: current vs desired table
+    User-->>Agent: approved items (others go to declined)
+    Agent->>Script: apply approved items
+    opt ruleset item approved
+        Script->>GitHub: GET check runs on default branch
+        GitHub-->>Script: check names seen
+    end
+    alt required check not seen yet
+        Script-->>Agent: BLOCKED, exit 4
+        Agent->>User: merge the setup PR, then run again
+    else checks seen or no ruleset change
+        Script->>GitHub: PATCH, PUT or POST each item
+        GitHub-->>Script: 200, or 403/422 on plan limits
+        Script-->>Agent: APPLIED, UNAVAILABLE or FAILED per item
+        Agent->>User: summary
+    end
+```
+
 ### Preferences file
 
 Optional, at `~/.config/initialize-repo/defaults.yaml`. The **agent** reads it;
