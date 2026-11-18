@@ -28,7 +28,9 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             # HEAD is GitHub's merge commit; HEAD^1 is the base branch tip.
-            kind=$(git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh)
+            # --no-renames lists both paths of a move, so moving logic into
+            # docs/ is still classified by where it came from.
+            kind=$(git diff --name-only --no-renames HEAD^1 HEAD | bash scripts/ci-scope.sh)
           else
             kind=logic
           fi
