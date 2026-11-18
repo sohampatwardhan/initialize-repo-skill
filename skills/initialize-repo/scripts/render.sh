@@ -21,6 +21,7 @@ template="$1"
 output="$2"
 shift 2
 [ -f "$template" ] || { echo "render.sh: template not found: $template" >&2; exit 2; }
+[ -r "$template" ] || { echo "render.sh: template not readable: $template" >&2; exit 2; }
 
 keys=()
 vals=()
@@ -33,7 +34,7 @@ while [ "$#" -gt 0 ]; do
       case "$2" in *=*) ;; *) usage ;; esac
       ins_markers+=("${2%%=*}")
       ins_files+=("${2#*=}")
-      [ -f "${2#*=}" ] || { echo "render.sh: insert file not found: ${2#*=}" >&2; exit 2; }
+      [ -r "${2#*=}" ] || { echo "render.sh: insert file not readable: ${2#*=}" >&2; exit 2; }
       shift 2
       ;;
     *=*)
@@ -51,7 +52,14 @@ nkeys=${#keys[@]}
 nins=${#ins_markers[@]}
 
 {
-  while IFS= read -r line || [ -n "$line" ]; do
+  while :; do
+    IFS= read -r line
+    rc=$?
+    nonl=0
+    if [ "$rc" -ne 0 ]; then
+      [ -n "$line" ] || break
+      nonl=1
+    fi
     trimmed="${line#"${line%%[![:space:]]*}"}"
     trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
     handled=0
@@ -79,10 +87,13 @@ nins=${#ins_markers[@]}
         line="${line//"$k"/$v}"
         i=$((i + 1))
       done
-      printf '%s\n' "$line"
+      if [ "$nonl" -eq 1 ]; then printf '%s' "$line"; else printf '%s\n' "$line"; fi
     fi
   done <"$template"
-} >"$output"
+  :
+} >"$output" || { echo "render.sh: cannot write $output" >&2; exit 2; }
+
+[ -r "$output" ] || { echo "render.sh: cannot read back $output" >&2; exit 2; }
 
 # Report placeholders that remain (not preceded by $), de-duplicated.
 missing=""

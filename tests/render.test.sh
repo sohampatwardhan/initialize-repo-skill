@@ -53,10 +53,24 @@ test_bad_usage() {
   assert_exit 2 bash "$RENDER" "$TMP/nonexistent" "$TMP/o6"
 }
 
+test_io_errors() {
+  printf 'x\n' >"$TMP/t8"
+  mkdir -p "$TMP/adir"
+  assert_exit 2 bash "$RENDER" "$TMP/t8" "$TMP/adir"
+  chmod 000 "$TMP/t8"
+  [ -r "$TMP/t8" ] || assert_exit 2 bash "$RENDER" "$TMP/t8" "$TMP/o8"
+  chmod 600 "$TMP/t8"
+}
+
 test_preserves_lines() {
   printf '  keep \\n\n\nlast' >"$TMP/t7"
   bash "$RENDER" "$TMP/t7" "$TMP/o7"
-  assert_eq "$(printf '  keep \\n\n\nlast')" "$(cat "$TMP/o7")" "whitespace, backslashes, blanks, no final newline"
+  printf '  keep \\n\n\nlast' >"$TMP/e7"
+  assert_exit 0 cmp "$TMP/e7" "$TMP/o7"
+  printf 'a {{N}}\n' >"$TMP/t7b"
+  bash "$RENDER" "$TMP/t7b" "$TMP/o7b" N=1
+  printf 'a 1\n' >"$TMP/e7b"
+  assert_exit 0 cmp "$TMP/e7b" "$TMP/o7b"
 }
 
 test_substitutes_values
@@ -65,5 +79,6 @@ test_unfilled_placeholder_fails
 test_insert_indents
 test_creates_parent_dirs
 test_bad_usage
+test_io_errors
 test_preserves_lines
 finish
