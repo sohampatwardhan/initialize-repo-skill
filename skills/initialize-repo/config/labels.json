@@ -1,6 +1,11 @@
 {
   "labels": [
     {
+      "name": "accessibility",
+      "color": "f143ab",
+      "description": "Barrier affecting people with disabilities"
+    },
+    {
       "name": "bug",
       "color": "d73a4a",
       "description": "Something isn't working"
