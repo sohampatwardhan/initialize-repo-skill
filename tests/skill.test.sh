@@ -141,10 +141,36 @@ test_required_content() {
   assert_contains "$s" "replaces" "settings-baseline.md says a PUT replaces the ruleset"
 }
 
+# Rules the review pinned: staged LICENSE/.gitignore, scoped gating rule, plan check.
+test_review_rules() {
+  local d lines bad
+  d="$(doc_text)"
+  # No command writes LICENSE or .gitignore straight into the repo root.
+  assert_eq "" "$(doc_text | grep -nE '>[[:space:]]*"?(\./)?(LICENSE|\.gitignore)"?([[:space:]]|$)')" \
+    "no redirect into the repo's LICENSE or .gitignore"
+  # shellcheck disable=SC2016 # literal text
+  assert_contains "$d" '> "$TMP/out/LICENSE"' "LICENSE is staged in \$TMP/out"
+  # shellcheck disable=SC2016 # literal text
+  assert_contains "$d" '> "$TMP/out/.gitignore"' ".gitignore is staged in \$TMP/out"
+  # The !cancelled()-only rule is scoped to step-level gating wherever it is stated.
+  lines="$(doc_text | grep -F 'only job-level condition allowed')"
+  assert_eq yes "$([ -n "$lines" ] && echo yes || echo no)" "SKILL.md states the job-level condition rule"
+  bad="$(printf '%s\n' "$lines" | grep -vF 'step-level gating')"
+  assert_eq "" "$bad" "the job-level condition rule is scoped to step-level gating"
+  # The plan can't be read with the required scopes; the audit/apply signal decides.
+  assert_not_contains "$d" ".plan.name" "SKILL.md does not rely on gh api user .plan.name"
+  assert_contains "$d" "rulesets are not available on this plan" "SKILL.md names the audit's plan NOTE"
+  # shellcheck disable=SC2016 # literal text
+  assert_contains "$d" 'top-level `type:` line' "issue-form edit targets the top-level type: line"
+  assert_contains "$(cat "$SKILL/references/settings-baseline.md" 2>/dev/null)" "Free organisation" \
+    "settings-baseline.md covers Free organisations"
+}
+
 test_frontmatter_name
 test_description_length
 test_referenced_paths_exist
 test_step_gated_example_lints
 test_steps_in_order
 test_required_content
+test_review_rules
 finish
