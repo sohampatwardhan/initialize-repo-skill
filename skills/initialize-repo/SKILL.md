@@ -26,7 +26,7 @@ Commands are plain POSIX shell with `git`, `gh` and `jq`. On Windows use Git Bas
 - Never change a repo setting without showing the audit and getting explicit approval of the items. Settings affect everyone on the repo.
 - Never report something GitHub refused or ignored (`UNAVAILABLE`, `FAILED`, `BLOCKED`) as done.
 - Never merge the setup pull request or the proof pull request. A human merges.
-- Never add `on: paths:` or `paths-ignore:` to a workflow trigger, and never put a job-level `if:` on a required matrix job. See `references/ci-design.md`.
+- Never add `on: paths:` or `paths-ignore:` to a workflow trigger. On a gated job, the only job-level condition allowed is `if: ${{ !cancelled() }}`. See `references/ci-design.md`.
 - Never propose a declined item again. Declined items live in the settings files' `declined` lists.
 
 ## Preferences file
@@ -213,7 +213,7 @@ Skip this step for new repos.
    - Rulesets: `gh api repos/OWNER/NAME/rules/branches/<default_branch> | jq -r '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
    - Classic protection: `gh api repos/OWNER/NAME/branches/<default_branch>/protection | jq -r '.required_status_checks.contexts[]?'` (HTTP 404 means none).
 2. No workflows under `.github/workflows/`: treat CI as for a new repo (template `ci.yml` plus a snippet, `ci-ok` required).
-3. Workflows exist: adapt them in place with step-level gating. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, and give every heavy step `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names. Never add a parallel `ci-ok` gate, a job-level `if:` on a matrix job, or a second ruleset. If nothing is required yet, ask which existing check names to require, or remove the `required_status_checks` rule from the ruleset file.
+3. Workflows exist: adapt them in place with step-level gating. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, give each such job the job-level `if: ${{ !cancelled() }}`, make its first step the guard that fails the job when `needs.scope.result != 'success'`, and give every heavy step after it `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names, and a failed `scope` job fails them instead of skipping them (a skipped required check counts as passing). The only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. Never add a parallel `ci-ok` gate or a second ruleset. If nothing is required yet, ask which existing check names to require, or remove the `required_status_checks` rule from the ruleset file.
 4. Rewrite what the templates say about `ci-ok` to match: the CI scope and Repository settings sections of `AGENTS.md`, and the `ci-ok` item in the Workflow list of `CONTRIBUTING.md`, should name the repo's required checks and describe step-level gating.
 5. Look for markdown that checks read (see `references/ci-design.md`) and add it to `ALWAYS_LOGIC` in `./scripts/ci-scope.sh`, with a test case in `./scripts/ci-scope.test.sh`. Run `bash ./scripts/ci-scope.test.sh`.
 6. Backtest before turning the skip on. Run the scope script on the file lists of the last 10 merged pull requests (`gh pr list --state merged --limit 10 --json number,files`, then `jq` per pull request into `./scripts/ci-scope.sh`):

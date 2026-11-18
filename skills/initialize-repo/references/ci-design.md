@@ -49,21 +49,39 @@ Use this mode for new repos, and for existing repos that have no workflows yet.
 
 Existing repos already require check names such as `build` or `test (ubuntu-latest)`. Changing those names would mean changing the ruleset, and a parallel `ci-ok` gate would leave the old names required and still slow. So keep every job and its name, and gate inside the job instead:
 
-- Every job still runs and reports. Never add a job-level `if:` that depends on the scope.
+- Every job still runs and reports.
 - Add a `scope` job to **each** workflow file that holds a required check (`needs:` works only within one workflow), and add `scope` to the `needs:` of each heavy job. Adding `needs:` does not change a check's name.
-- Give each heavy step `if: needs.scope.outputs.logic == 'true'`: checkout, toolchain setup, caches, builds, tests, uploads. Cheap steps may stay ungated.
+- Give each gated job exactly one job-level condition, `if: ${{ !cancelled() }}`, and no other job-level `if:`.
+- Make the gated job's first step fail the job when scope did not succeed:
+
+  ```yaml
+  - name: Require scope result
+    if: needs.scope.result != 'success'
+    env:
+      SCOPE_RESULT: ${{ needs.scope.result }}
+    run: |
+      echo "scope job did not succeed (result: $SCOPE_RESULT); refusing to report success" >&2
+      exit 1
+  ```
+
+- Give each heavy step after that `if: needs.scope.outputs.logic == 'true'`: checkout, toolchain setup, caches, builds, tests, uploads. Cheap steps may stay ungated.
 - Leave jobs that read markdown (link checkers, expiry checks) ungated, or make sure the files they read are in `ALWAYS_LOGIC`.
 - Required check names, matrix ones included, stay the same, and the ruleset's `required_status_checks` keep the existing names. Do not add `ci-ok` and do not add a second ruleset.
 
-On a docs-only pull request each job starts, skips its heavy steps, and finishes green in seconds.
+On a docs-only pull request each job starts, skips its heavy steps, and finishes green in seconds. On a logic pull request every step runs. If the `scope` job fails, the guard step fails every gated job, so the required checks fail.
+
+Why the job-level condition is exactly `${{ !cancelled() }}`:
+
+- Without a status function, a job runs only when everything it `needs` succeeded. If `scope` failed, the gated jobs would be skipped, and GitHub counts a skipped required check as passing, so a broken scope job would let anything merge.
+- A job-level `if:` that can evaluate to false (for example one that reads the scope output) skips a matrix job before the matrix expands. The expanded names such as `test (ubuntu-latest)` never report, and pull requests wait on "pending" forever.
+- `!cancelled()` is true whether `scope` succeeded or failed, so the job always starts, the matrix expands, and the guard step decides. It is false only when someone cancels the run, which is the one case where not reporting is expected.
 
 Worked example with a matrix job: [examples/step-gated.yml](examples/step-gated.yml).
 
 Limits of step-level gating:
 
 - `services:` containers and a job-level `container:` start before any step runs, so they cannot be gated; the job still finishes quickly.
-- A job that calls a reusable workflow (`jobs.<id>.uses:`) has no steps to gate. Pass `needs.scope.outputs.logic` to it as an input and gate the steps inside the called workflow, or leave that job ungated.
-- If the `scope` job itself fails, jobs that need it are skipped, and GitHub counts a skipped required check as passing. Keep the `scope` job trivial (it defaults to `logic` whenever classification has no input) and treat a red `scope` job as a failed build.
+- A job that calls a reusable workflow (`jobs.<id>.uses:`) has no steps to gate. Pass `needs.scope.outputs.logic` and `needs.scope.result` to it as inputs and put the guard step and the step gates inside the called workflow, or leave that job ungated.
 
 ## Backtest before turning the skip on
 
@@ -87,6 +105,6 @@ Read every `non-logic` row. If a pull request in that list changed something a c
 | Alternative | Why not |
 | --- | --- |
 | `on: paths:` / `paths-ignore:` | The workflow never starts, so required checks stay pending. |
-| Job-level `if:` on required jobs | Skipped matrix jobs never create their per-matrix check names. |
+| A job-level `if:` that reads the scope, on required jobs | Skipped matrix jobs never create their per-matrix check names. |
 | A path-filter action from the Marketplace | A third-party dependency for what `git diff --name-only` does. |
 | Requiring each stack job | Any skipped, renamed or matrix job can block merges. `ci-ok` (mode 1) or step-level gating (mode 2) avoids it. |
