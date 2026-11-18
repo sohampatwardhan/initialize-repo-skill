@@ -23,17 +23,17 @@ The design came from a real repo where a one-line `AGENTS.md` change was blocked
 - `NON_LOGIC` defaults: `*.md`, `*.txt`, `docs/*`, `LICENSE*`, `.gitignore`, `*/.gitignore`, `.github/ISSUE_TEMPLATE/*`, `.github/pull_request_template.md`.
 - A path that matches neither array is logic. Empty input is logic. One logic path makes the whole change logic.
 
-When you change the patterns, add a case for each change to `scripts/ci-scope.test.sh` and run `bash scripts/ci-scope.test.sh`. To find markdown that a check reads, search the workflows and scripts for markdown paths, for example `grep -rn '\.md' .github/workflows scripts Makefile package.json 2>/dev/null`, and put each such path in `ALWAYS_LOGIC`.
+When you change the patterns, add a case for each change to `scripts/ci-scope.test.sh` and run `bash scripts/ci-scope.test.sh`. To find markdown that a check reads, search the workflows and scripts for markdown paths, for example `grep -rn '\.md' .github/workflows scripts tests test Makefile package.json 2>/dev/null` (tests that read the repo's own markdown count too), and put each such path in `ALWAYS_LOGIC`.
 
 ## The scope job
 
 The `scope` job checks out with `fetch-depth: 2` and, on `pull_request`, runs `git diff --name-only HEAD^1 HEAD | bash scripts/ci-scope.sh`. On a pull request `HEAD` is GitHub's merge commit and `HEAD^1` is the base branch tip, so the diff is exactly what the pull request changes. No third-party action is involved. On `push` (and `workflow_dispatch`) the scope is always `logic`, so the default branch is always fully checked. The job exposes `outputs.logic` as `true` or `false`. It is `false` only when the script prints exactly `non-logic`; any other output (empty, a typo, a value added later) gives `true`, so a broken classifier runs CI instead of skipping it.
 
-The scope tests run on every pull request too, so a broken pattern edit fails CI: the new-repo template runs `bash scripts/ci-scope.test.sh` in its always-on `checks` job, and the step-gated example runs it in `scope`.
+The scope tests run on every pull request too, so a broken pattern edit fails CI: the new-repo template runs `bash scripts/ci-scope.test.sh` in its always-on `checks` job, and the step-gated example (and an existing workflow adapted to mode 1) runs it in `scope`.
 
 ## Two gating modes
 
-### Mode 1: job-level gate plus `ci-ok` (new repos)
+### Mode 1: job-level gate plus `ci-ok` (new repos, or nothing required yet)
 
 Used by `templates/.github/workflows/ci.yml` with a snippet from `templates/ci/`.
 
@@ -43,7 +43,7 @@ Used by `templates/.github/workflows/ci.yml` with a snippet from `templates/ci/`
 - `ci-ok` is the **only** required check. Because nothing else is required, a skipped job, a matrix that never expands, or a renamed stack job never leaves a required check pending.
 - When a stack job is added, renamed or split, add it to `ci-ok`'s `needs:`. A job missing from that list can fail without blocking the merge.
 
-Use this mode for new repos, and for existing repos that have no workflows yet.
+Use this mode for new repos, for existing repos that have no workflows yet, and for existing repos whose workflows have no required checks yet. In that last case, add `scope` (with a step that runs `bash scripts/ci-scope.test.sh`, since there is no `checks` job), gate the existing heavy jobs as above, and add `ci-ok` to the same workflow file: `needs:` only sees jobs in its own file.
 
 ### Mode 2: step-level gate (existing repos with named required checks)
 

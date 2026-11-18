@@ -18,6 +18,8 @@ Resolve these paths from the directory containing this SKILL.md. In this file:
 - **Skill paths** are written relative to the skill directory: `scripts/preflight.sh`, `scripts/render.sh`, `templates/`, `config/`, `references/`. In commands they appear as `"$SKILL/..."`, where `SKILL` is the absolute path of the skill directory. Set it in each shell you open, or substitute the path.
 - **Repo paths** are in the repo being set up and are written from its root: `.github/...`, `./scripts/repo-settings.sh`, `./scripts/ci-scope.sh`. Run every command from the repo root.
 
+Many agent tools start a fresh shell for every command, so shell variables (`SKILL`, `TMP`, the answers) do not carry over. Set them again in each command that uses them, or substitute the values; keep the `TMP` path that `mktemp -d` printed and reuse it.
+
 Commands are plain POSIX shell with `git`, `gh` and `jq`. On Windows use Git Bash. Write `gh api` endpoints without a leading slash (`gh api licenses/mit`): Git Bash rewrites a leading `/` into a Windows path.
 
 ## Rules that always hold
@@ -26,7 +28,7 @@ Commands are plain POSIX shell with `git`, `gh` and `jq`. On Windows use Git Bas
 - Never change a repo setting without showing the audit and getting explicit approval of the items. Settings affect everyone on the repo.
 - Never report something GitHub refused or ignored (`UNAVAILABLE`, `FAILED`, `BLOCKED`) as done.
 - Never merge the setup pull request or the proof pull request. A human merges.
-- Never add `on: paths:` or `paths-ignore:` to a workflow trigger. In step-level gating (existing repos with named required checks), the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. The new-repo template's job-level `if: needs.scope.outputs.logic == 'true'` on `lint` and `test` is correct as it is, because `ci-ok` is the only required check there. See `references/ci-design.md`.
+- Never add `on: paths:` or `paths-ignore:` to a workflow trigger. In step-level gating (existing repos with named required checks), the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. In `ci-ok` mode (new repos, and existing repos with nothing required yet), the job-level `if: needs.scope.outputs.logic == 'true'` on heavy jobs is correct, because `ci-ok` is the only required check there. See `references/ci-design.md`.
 - Never propose a declined item again. Declined items live in the settings files' `declined` lists.
 
 ## Preferences file
@@ -79,10 +81,10 @@ Ask only what the preferences file and the repo don't answer, in one message:
 | Copyright holder | when a licence is chosen, unless `copyright_holder` or `author_name` | `LICENSE` |
 | Stack | new: ask; existing: detect and confirm | CI snippet, `.gitignore`, `STACK_COMMANDS`, Dependabot |
 | Merge style, required approvals | unless `merge_style` / `required_approvals` (defaults: squash only, 0) | `.github/settings/` |
-| Security contact (an email address) | unless the repo already has `SECURITY.md` | `SECURITY_CONTACT` |
+| Security contact: GitHub private vulnerability reporting only, or also an email address | unless the repo already has `SECURITY.md` | `SECURITY_CONTACT` |
 
 - Licence: offer the keys from `gh api licenses | jq -r '.[] | "\(.key)\t\(.name)"'`, plus "no licence". Always ask unless the preference is set; never pick one for the user.
-- Stack detection for existing repos: `package.json` means Node, `pyproject.toml` (or `requirements.txt`) Python, `go.mod` Go, `Cargo.toml` Rust. Anything else, or nothing yet, means `placeholder`.
+- Stack detection for existing repos: `package.json` means Node, `pyproject.toml` (or `requirements.txt`) Python, `go.mod` Go, `Cargo.toml` Rust. If none of those exists but the repo already builds and tests with its own tooling (shell scripts, a `Makefile`, the `run:` steps of its workflows), the stack is `other`: take `STACK_COMMANDS` from those commands and confirm them. Anything else, or nothing yet, means `placeholder`.
 - Visibility: rulesets are not available on private repos whose owner (a personal account or an organisation) is on GitHub Free. The token preflight requires usually can't read the plan (`gh api user` returns `"plan": null` without the `user` scope), so don't try to decide it up front. If the repo will be private, tell the user the default-branch ruleset may not be available on their plan. The authoritative signal comes in step 7: audit's `NOTE ... rulesets are not available on this plan` line, or `UNAVAILABLE` from apply.
 - Commit convention: `commit_convention`, default `Conventional Commits`.
 
@@ -102,7 +104,7 @@ Existing repo:
 
 ### 4. Write files
 
-Render into a temporary directory first, then move each file into the repo. A file that does not exist yet is added. A file that already exists is never replaced: show the difference (`git diff --no-index <existing> <rendered>`) and ask whether to keep it, replace it, or merge the missing parts in. For an existing `AGENTS.md`, offer to append the sections it lacks (GitHub workflow, CI scope, Repository settings). For an existing `CLAUDE.md`, offer to add an `@AGENTS.md` line.
+Render into a temporary directory first, then move each file into the repo. A file that does not exist yet is added. A file that already exists is never replaced: show the difference (`git diff --no-index <existing> <rendered>`) and ask whether to keep it, replace it, or merge the missing parts in. For an existing `AGENTS.md`, offer to append the sections it lacks (GitHub workflow, CI scope, Repository settings). For an existing `CLAUDE.md`, offer to add an `@AGENTS.md` line. A newly added `README.md` is a starting point: fill in what the project is, how to install and use it, and what it needs.
 
 | Repo file | Source |
 | --- | --- |
@@ -115,7 +117,7 @@ Render into a temporary directory first, then move each file into the repo. A fi
 | `.gitignore` | `gh api gitignore/templates/<Lang>` |
 | `.github/settings/*.json` | `config/`, copied and adjusted |
 
-**Render** the content templates (everything in `templates/` except `templates/ci/`, `templates/scripts/` and `templates/.github/workflows/`) into a temporary directory, passing every value; keys a template doesn't use are ignored. Run it as one shell command, with `SKILL` and the answer variables (`NAME`, `DESCRIPTION`, `OWNER`, `BRANCH`, `HOLDER`, `LICENSE_NAME`, `CONTACT`, `CONVENTION`, `STACK_COMMANDS`) set in the same shell. For an existing repo, `OWNER` and `NAME` come from `repo=`. A value for a file the repo keeps its own copy of (say `SECURITY_CONTACT` when `SECURITY.md` stays) can be any text; that rendered file is discarded.
+**Render** the content templates (everything in `templates/` except `templates/ci/`, `templates/scripts/` and `templates/.github/workflows/`) into a temporary directory, passing every value; keys a template doesn't use are ignored. Run it as one shell command, with `SKILL` and the answer variables (`NAME`, `DESCRIPTION`, `OWNER`, `BRANCH`, `HOLDER`, `LICENSE_NAME`, `CONTACT`, `CONVENTION`, `STACK_COMMANDS`) set in the same shell. For an existing repo, `OWNER` and `NAME` come from `repo=`. A value for a file the repo keeps its own copy of (say `SECURITY_CONTACT` when `SECURITY.md` stays) can be any text; that rendered file is discarded. With no security email, pass any text as `SECURITY_CONTACT` and then delete the sentence `If that is unavailable, contact <...>.` from the rendered `SECURITY.md`.
 
 ```bash
 TMP="$(mktemp -d)"
@@ -146,6 +148,7 @@ bash "$SKILL/scripts/render.sh" "$SKILL/templates/.github/workflows/ci.yml" "$TM
 | Node | `npm ci`, `npm run lint --if-present`, `npm test` | `npm` | `Node` | `templates/ci/node.yml` |
 | Go | `go vet ./...`, `go test ./...` | `gomod` | `Go` | `templates/ci/go.yml` |
 | Rust | `cargo clippy --all-targets -- -D warnings`, `cargo test` | `cargo` | `Rust` | `templates/ci/rust.yml` |
+| other | the repo's own commands (gather) | none | keep the existing `.gitignore` | none: keep its workflows (step 5) |
 | placeholder | a line saying build and test commands are still to come | none | ask, or skip | `templates/ci/placeholder.yml` |
 
 Put one command per line in `STACK_COMMANDS`. A Dependabot entry looks like:
@@ -176,7 +179,7 @@ gh api licenses/mit | jq -r --arg y "$(date +%Y)" --arg n "$HOLDER" \
 gh api gitignore/templates/Node | jq -r '.source' > "$TMP/out/.gitignore"
 ```
 
-**Settings:** copy the defaults, then adjust them to the answers with `jq` (write to a temporary file and move it back; there is no in-place edit):
+**Settings:** copy the defaults, then adjust them to the answers with `jq` (write to a temporary file and move it back; there is no in-place edit). The defaults are squash only, 0 approvals and `ci-ok` required, so with those answers nothing needs adjusting. For another approval count, set `n` below to it:
 
 ```bash
 mkdir -p .github/settings
@@ -186,9 +189,11 @@ jq --argjson n 1 '.rules |= map(if .type == "pull_request" then .parameters.requ
 ```
 
 - Merge style: set the chosen `allow_*_merge` key in `repo.json` to `true` and the other two to `false`.
-- Existing repo whose wiki is on: ask whether it is in use; if so set `repo.has_wiki` to `true`.
+- Existing repo whose wiki is on: ask whether it is in use; if so set `repo.has_wiki` to `true`. A wiki with no pages has no git repository yet, so `git ls-remote https://github.com/OWNER/NAME.wiki.git` failing with "Repository not found" means it is empty.
 - Existing repo with required checks: in `ruleset-default-branch.json`, replace the `ci-ok` entry with the repo's current required check names (step 5, item 1, shows how to find them).
 - Anything the user does not want goes in that file's `declined` list with a reason, as `{"item": "<item id>", "reason": "..."}`. `references/settings-baseline.md` explains every setting and which file each item belongs to.
+
+`SECURITY.md` sends reporters to private vulnerability reporting, which the settings files do not manage. Check it with `gh api repos/OWNER/NAME/private-vulnerability-reporting` (read-only; a new repo once it exists); if it prints `"enabled":false`, list "turn on private vulnerability reporting (Settings, Code security)" as a follow-up in step 8.
 
 For an existing repo, now run `bash ./scripts/repo-settings.sh audit` once (read-only). Its `NOTE` lines show another ruleset on the default branch or classic branch protection. Settle those now, as `references/settings-baseline.md` describes, before the files are committed.
 
@@ -201,9 +206,14 @@ Skip this step for new repos.
 1. Find the required checks:
    - Rulesets: `gh api repos/OWNER/NAME/rules/branches/<default_branch> | jq -r '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
    - Classic protection: `gh api repos/OWNER/NAME/branches/<default_branch>/protection | jq -r '.required_status_checks.contexts[]?'` (HTTP 404 means none).
-2. No workflows under `.github/workflows/`: treat CI as for a new repo (template `ci.yml` plus a snippet, `ci-ok` required).
-3. Workflows exist: adapt them in place with step-level gating. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, give each such job the job-level `if: ${{ !cancelled() }}`, make its first step the guard that fails the job when `needs.scope.result != 'success'`, and give every heavy step after it `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names, and a failed `scope` job fails them instead of skipping them (a skipped required check counts as passing). In step-level gating, the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. Never add a parallel `ci-ok` gate or a second ruleset. If nothing is required yet, ask which existing check names to require, or remove the `required_status_checks` rule from the ruleset file.
-4. Rewrite what the templates say about `ci-ok` to match: the CI scope and Repository settings sections of `AGENTS.md`, and the `ci-ok` item in the Workflow list of `CONTRIBUTING.md`, should name the repo's required checks and describe step-level gating.
+2. Pick the gating mode from what item 1 found:
+   - No workflows under `.github/workflows/`: treat CI as for a new repo (template `ci.yml` plus a snippet, `ci-ok` required). Skip to item 5.
+   - Workflows exist but nothing is required yet: offer `ci-ok` mode, the default here; the alternative is step-level gating with check names the user picks. Do item 3, not item 4.
+   - Named required checks exist: step-level gating. Do item 4, not item 3.
+3. `ci-ok` mode on existing workflows: in the workflow that holds the heavy jobs, add the template's `scope` job (copy it from `templates/.github/workflows/ci.yml`) with a first step after checkout that runs `bash scripts/ci-scope.test.sh`, so the classifier is tested on every pull request. Give each heavy job `needs: scope` and `if: needs.scope.outputs.logic == 'true'`, keeping any `needs:` it already has. Add the template's `ci-ok` job with `needs:` listing every other job in that file and `if: always()`. `ci-ok` can only need jobs in its own file: if heavy jobs live in several workflow files, move them into one or use step-level gating instead. Keep the ruleset file's `ci-ok` entry. In `AGENTS.md`, rewrite the CI scope section's job names (`lint`, `test`, `checks`) to the repo's real ones.
+4. Step-level gating: adapt the workflows in place. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, give each such job the job-level `if: ${{ !cancelled() }}`, make its first step the guard that fails the job when `needs.scope.result != 'success'`, and give every heavy step after it `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names, and a failed `scope` job fails them instead of skipping them (a skipped required check counts as passing). In step-level gating, the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. Never add a parallel `ci-ok` gate or a second ruleset. If the user chose step-level gating with nothing required yet, put the check names they picked in the ruleset file in place of `ci-ok`.
+
+   Then rewrite what the templates say about `ci-ok` to match: the CI scope and Repository settings sections of `AGENTS.md`, and the `ci-ok` item in the Workflow list of `CONTRIBUTING.md`, should name the repo's required checks and describe step-level gating.
 5. Look for markdown that checks read (see `references/ci-design.md`) and add it to `ALWAYS_LOGIC` in `./scripts/ci-scope.sh`, with a test case in `./scripts/ci-scope.test.sh`. Run `bash ./scripts/ci-scope.test.sh`.
 6. Backtest before turning the skip on. Run the scope script on the file lists of the last 10 merged pull requests (`gh pr list --state merged --limit 10 --json number,files`, then `jq` per pull request into `./scripts/ci-scope.sh`):
 
@@ -216,7 +226,7 @@ Skip this step for new repos.
      done
    ```
 
-   Show the user which pull requests would have skipped heavy CI (`non-logic`). If one of them changed something a check reads, fix the patterns and run it again. Put the table in the setup pull request's body.
+   With no merged pull requests the loop prints nothing; say so in the setup pull request instead of a table. Otherwise show the user which pull requests would have skipped heavy CI (`non-logic`). If one of them changed something a check reads, fix the patterns and run it again. Put the table in the setup pull request's body.
 7. If `actionlint` is installed, run it on each changed workflow.
 
 ### 6. Commit
