@@ -26,7 +26,7 @@ Commands are plain POSIX shell with `git`, `gh` and `jq`. On Windows use Git Bas
 - Never change a repo setting without showing the audit and getting explicit approval of the items. Settings affect everyone on the repo.
 - Never report something GitHub refused or ignored (`UNAVAILABLE`, `FAILED`, `BLOCKED`) as done.
 - Never merge the setup pull request or the proof pull request. A human merges.
-- Never add `on: paths:` or `paths-ignore:` to a workflow trigger. On a gated job, the only job-level condition allowed is `if: ${{ !cancelled() }}`. See `references/ci-design.md`.
+- Never add `on: paths:` or `paths-ignore:` to a workflow trigger. In step-level gating (existing repos with named required checks), the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. The new-repo template's job-level `if: needs.scope.outputs.logic == 'true'` on `lint` and `test` is correct as it is, because `ci-ok` is the only required check there. See `references/ci-design.md`.
 - Never propose a declined item again. Declined items live in the settings files' `declined` lists.
 
 ## Preferences file
@@ -93,7 +93,7 @@ Ask only what the preferences file and the repo don't answer, in one message:
 
 - Licence: offer the keys from `gh api licenses | jq -r '.[] | "\(.key)\t\(.name)"'`, plus "no licence". Always ask unless the preference is set; never pick one for the user.
 - Stack detection for existing repos: `package.json` means Node, `pyproject.toml` (or `requirements.txt`) Python, `go.mod` Go, `Cargo.toml` Rust. Anything else, or nothing yet, means `placeholder`.
-- Visibility: if the owner is a user account (`owner_type=User`, or the new repo's owner is the user) on GitHub Free and the repo is private, say now that the default-branch ruleset will not be available. Check the plan with `gh api user | jq -r '.plan.name'`.
+- Visibility: rulesets are not available on private repos whose owner (a personal account or an organisation) is on GitHub Free. The token preflight requires usually can't read the plan (`gh api user` returns `"plan": null` without the `user` scope), so don't try to decide it up front. If the repo will be private, tell the user the default-branch ruleset may not be available on their plan. The authoritative signal comes in step 7: audit's `NOTE ... rulesets are not available on this plan` line, or `UNAVAILABLE` from apply.
 - Commit convention: `commit_convention`, default `Conventional Commits`.
 
 ### 3. Create or connect
@@ -174,18 +174,17 @@ Put one command per line in `STACK_COMMANDS`. A Dependabot entry looks like:
 - Go: `go.mod`.
 - Rust: `Cargo.toml`. The snippet uses the runner's preinstalled toolchain; add `rust-toolchain.toml` to pin one.
 
-**Issue forms:** if `issue_types=no`, delete the `type:` line from each `.github/ISSUE_TEMPLATE/*.yml`. Their labels (`bug`, `enhancement`, `task`) mark the kind of issue instead.
+**Issue forms:** if `issue_types=no`, delete the top-level `type:` line (`type: Bug`, `type: Feature`, `type: Task`) from each rendered `$TMP/out/.github/ISSUE_TEMPLATE/*.yml`. Keep the `- type: textarea` lines under `body:`. The forms' labels (`bug`, `enhancement`, `task`) mark the kind of issue instead.
 
-**LICENSE:** fill the copyright line's tokens (MIT and BSD use `[year]` and `[fullname]`). Leave "how to apply" appendices (Apache, GPL) as they are.
+**LICENSE and .gitignore** are staged in `$TMP/out/` like the rendered files, then moved into the repo by the same add-or-ask rule. An existing `LICENSE` is kept unless the user asks to replace it; take `LICENSE_NAME` from `gh api repos/OWNER/NAME | jq -r '.license.spdx_id'`. For an existing `.gitignore`, show the lines the staged one would add and ask before appending them.
+
+Fill the licence's copyright-line tokens (MIT and BSD use `[year]` and `[fullname]`), and leave "how to apply" appendices (Apache, GPL) as they are:
 
 ```bash
 gh api licenses/mit | jq -r --arg y "$(date +%Y)" --arg n "$HOLDER" \
-  '.body | gsub("\\[year\\]"; $y) | gsub("\\[fullname\\]"; $n)' > LICENSE
+  '.body | gsub("\\[year\\]"; $y) | gsub("\\[fullname\\]"; $n)' > "$TMP/out/LICENSE"
+gh api gitignore/templates/Node | jq -r '.source' > "$TMP/out/.gitignore"
 ```
-
-For an existing repo with a licence, keep it and take `LICENSE_NAME` from `gh api repos/OWNER/NAME | jq -r '.license.spdx_id'`.
-
-**.gitignore:** `gh api gitignore/templates/Node | jq -r '.source' > .gitignore`. For an existing `.gitignore`, show the missing lines and ask before appending them.
 
 **Settings:** copy the defaults, then adjust them to the answers with `jq` (write to a temporary file and move it back; there is no in-place edit):
 
@@ -213,7 +212,7 @@ Skip this step for new repos.
    - Rulesets: `gh api repos/OWNER/NAME/rules/branches/<default_branch> | jq -r '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
    - Classic protection: `gh api repos/OWNER/NAME/branches/<default_branch>/protection | jq -r '.required_status_checks.contexts[]?'` (HTTP 404 means none).
 2. No workflows under `.github/workflows/`: treat CI as for a new repo (template `ci.yml` plus a snippet, `ci-ok` required).
-3. Workflows exist: adapt them in place with step-level gating. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, give each such job the job-level `if: ${{ !cancelled() }}`, make its first step the guard that fails the job when `needs.scope.result != 'success'`, and give every heavy step after it `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names, and a failed `scope` job fails them instead of skipping them (a skipped required check counts as passing). The only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. Never add a parallel `ci-ok` gate or a second ruleset. If nothing is required yet, ask which existing check names to require, or remove the `required_status_checks` rule from the ruleset file.
+3. Workflows exist: adapt them in place with step-level gating. Read `references/ci-design.md` and follow `references/examples/step-gated.yml`: add a `scope` job to each workflow that holds a required check, add `scope` to each heavy job's `needs:`, give each such job the job-level `if: ${{ !cancelled() }}`, make its first step the guard that fails the job when `needs.scope.result != 'success'`, and give every heavy step after it `if: needs.scope.outputs.logic == 'true'`. Jobs keep running and keep their names, and a failed `scope` job fails them instead of skipping them (a skipped required check counts as passing). In step-level gating, the only job-level condition allowed on a gated job is `if: ${{ !cancelled() }}`. Never add a parallel `ci-ok` gate or a second ruleset. If nothing is required yet, ask which existing check names to require, or remove the `required_status_checks` rule from the ruleset file.
 4. Rewrite what the templates say about `ci-ok` to match: the CI scope and Repository settings sections of `AGENTS.md`, and the `ci-ok` item in the Workflow list of `CONTRIBUTING.md`, should name the repo's required checks and describe step-level gating.
 5. Look for markdown that checks read (see `references/ci-design.md`) and add it to `ALWAYS_LOGIC` in `./scripts/ci-scope.sh`, with a test case in `./scripts/ci-scope.test.sh`. Run `bash ./scripts/ci-scope.test.sh`.
 6. Backtest before turning the skip on. Run the scope script on the file lists of the last 10 merged pull requests (`gh pr list --state merged --limit 10 --json number,files`, then `jq` per pull request into `./scripts/ci-scope.sh`):
@@ -296,7 +295,7 @@ bash ./scripts/repo-settings.sh apply repo.allow_auto_merge "labels.good first i
 | Line | Exit | Meaning and what to do |
 | --- | --- | --- |
 | `APPLIED  <item>` | 0 | Done. |
-| `UNAVAILABLE  <item>  <reason>` | 3 | GitHub refused it on this plan (HTTP 403/422), or accepted the request but did not change the value. Report it plainly as not applied. Rulesets do not work on private repos owned by free personal accounts. Offer to decline it so later audits stay quiet. |
+| `UNAVAILABLE  <item>  <reason>` | 3 | GitHub refused it on this plan (HTTP 403/422), or accepted the request but did not change the value. Report it plainly as not applied. Rulesets do not work on private repos whose owner, personal account or organisation, is on GitHub Free. Offer to decline it so later audits stay quiet. |
 | `FAILED  <item>  <reason>` | 1 | Another error. Report it with the reason. |
 | `BLOCKED  <item>  ...` | 4 | The ruleset requires a check that has not run on the default branch yet, so it was not written. |
 | `NOTE  <item> is declined (...); skipped` | - | Already declined. |

@@ -87,7 +87,7 @@ A ruleset that requires a check before that check has ever run would leave every
 
 ## Plan limits
 
-- **Rulesets** are not available on private repos owned by a free personal account. Audit prints `NOTE ruleset.default-branch rulesets are not available on this plan` instead of a difference, and an apply is refused and reported as `UNAVAILABLE`. Making the repo public or upgrading the plan lifts the limit.
+- **Rulesets** are not available on private repos whose owner is on GitHub Free, whether a free personal account or a Free organisation. The token the skill needs (`repo`, `workflow`) usually cannot read the plan (`gh api user` returns `"plan": null` without the `user` scope), so the audit and apply results are the authoritative signal. Audit prints `NOTE ruleset.default-branch rulesets are not available on this plan` instead of a difference, and an apply is refused and reported as `UNAVAILABLE`. Making the repo public or upgrading the plan lifts the limit.
 - **Secret scanning and push protection** on private repos need a paid add-on.
 - **Issue types** exist only on some repos. The skill checks per repo (preflight's `issue_types`), never from the owner type, and falls back to the `bug` / `enhancement` / `task` labels.
 
