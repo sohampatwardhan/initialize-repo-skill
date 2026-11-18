@@ -91,8 +91,10 @@ taught the lessons this skill is built on:
 - GitHub plan limits:
   - Rulesets are unavailable on **private repos owned by a free personal
     account**.
-  - **Issue types** (Task/Bug/Feature) exist only for **organization-owned**
-    repos.
+  - **Issue types** (Task/Bug/Feature) aren't available on every repo. They
+    started as organization-only, but this personal repo has them. Detect
+    per repo via GraphQL (`repository.issueTypes`); never infer from owner
+    type.
   - Security alert links need Dependabot alerts / code scanning enabled.
 - Follows the Agent Skills format (`SKILL.md` with `name` and `description`
   frontmatter). The builder verifies current field rules, the Claude Code
@@ -317,14 +319,14 @@ Adapted from the author's issue rules, written for any repo and any agent:
 - Don't change repo settings to fill a field. Ask first.
 - Use `gh` and `gh api graphql` for types and relationships the CLI flags
   don't cover.
-- **Fallback:** on repos without issue types (personal accounts), use the
+- **Fallback:** on repos without issue types, use the
   `bug` / `enhancement` / `task` labels.
 
 The same content goes into the generated `AGENTS.md`.
 
 ### Labels
 
-Reuse GitHub's default labels. Add only `task` (for the personal-repo type
+Reuse GitHub's default labels. Add only `task` (for the issue-type
 fallback). Dependabot creates `dependencies` itself.
 
 ### This repo (dogfooding)

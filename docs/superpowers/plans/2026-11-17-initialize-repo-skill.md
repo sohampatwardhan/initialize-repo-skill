@@ -371,7 +371,7 @@ test_classic_protection_note           # protection fixture present -> NOTE line
     - `existing-first`: a remote exists and `DIR/.github/settings/` doesn't
     - `configured`: otherwise. The agent then runs `repo-settings.sh audit`, which covers both "second run" and "re-audit".
   - **Required scopes:** `repo` and `workflow`. `workflow` is needed to push workflow files.
-  - **Issue types:** checked via `gh api graphql` on `repository.issueTypes` (org repos only). `no` for user-owned repos.
+  - **Issue types:** checked via `gh api graphql` on `repository.issueTypes`. `yes` if any types are returned. Never inferred from owner type, because personal repos can have them too.
 
 - [ ] **Step 1: Write `tests/preflight.test.sh`** using temp git repos and the fake `gh`, with the `auth status` and `api user` fixtures extended:
 
@@ -381,7 +381,8 @@ test_existing_first               # remote github.com/o/r + 1 commit, no .github
 test_configured                   # + .github/settings/repo.json -> situation=configured
 test_missing_workflow_scope       # scopes lack workflow -> exit 1, error= mentions "gh auth refresh -s workflow"
 test_gh_logged_out                # auth status fails -> auth=none, exit 1, error= mentions "gh auth login"
-test_user_repo_no_issue_types     # owner_type=User -> issue_types=no
+test_issue_types_detected         # graphql issueTypes [Task,Bug,Feature] on a User repo -> issue_types=yes
+test_issue_types_absent           # graphql issueTypes [] -> issue_types=no
 ```
 
 - [ ] **Step 2: Run** it. Expected: fails.
@@ -409,7 +410,7 @@ test_user_repo_no_issue_types     # owner_type=User -> issue_types=no
     - `## Repository settings`: `.github/settings/` is the source of truth; run `scripts/repo-settings.sh audit`
   - **`CLAUDE.md`** is exactly `@AGENTS.md` plus a newline.
   - **`CHANGELOG.md`** follows Keep a Changelog 1.1.0, with an empty `## [Unreleased]`.
-  - **Issue forms:** `bug.yml`, `feature.yml`, and `task.yml` set `type:` (Bug/Feature/Task) *and* `labels:` (`bug`/`enhancement`/`task`), so both personal and org repos work. Verify the issue-form `type` key against GitHub docs.
+  - **Issue forms:** `bug.yml`, `feature.yml`, and `task.yml` set `type:` (Bug/Feature/Task) *and* `labels:` (`bug`/`enhancement`/`task`), so repos with and without issue types both work. Verify the issue-form `type` key against GitHub docs.
   - **PR template:** includes a `Closes #` line and a checklist line for `CHANGELOG.md`.
   - **`dependabot.yml`:** has a `github-actions` ecosystem entry, plus a commented `# {{STACK_ECOSYSTEM}}` block for the agent to fill in.
 
