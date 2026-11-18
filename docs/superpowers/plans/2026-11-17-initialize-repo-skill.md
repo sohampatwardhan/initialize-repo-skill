@@ -282,6 +282,7 @@ test_render_trunk_branch   # DEFAULT_BRANCH=trunk -> yq '.on.push.branches[0]' =
 ```
 
   Skip the actionlint cases, with a visible `SKIP`, if `actionlint` isn't installed locally. CI installs it.
+
 - [ ] **Step 2: Run** `bash tests/ci-template.test.sh`. Expected: fails.
 - [ ] **Step 3: Write the base `ci.yml` and the five snippets.** Resolve each action's SHA via `gh api repos/<owner>/<action>/git/ref/tags/<tag> --jq .object.sha`. If that returns a tag object, follow it with `gh api repos/<o>/<a>/git/tags/<sha> --jq .object.sha`.
 - [ ] **Step 4: Run** the test. Expected: pass.
@@ -584,7 +585,10 @@ test_defaults_example_keys     # defaults.yaml contains all 9 keys from the spec
 ```
 
   Add `claude plugin validate .` as a CI step only if the docs confirm such a command exists.
-- [ ] **Step 3: Run** them. Expected: fail. **Step 4: Write the manifests and the example.** **Step 5: Run** `bash tests/run-all.sh`. Expected: pass.
+
+- [ ] **Step 3: Run** them. Expected: fail.
+- [ ] **Step 4: Write the manifests and the example.**
+- [ ] **Step 5: Run** `bash tests/run-all.sh`. Expected: pass.
 - [ ] **Step 6: Local install check:** add this repo as a local marketplace in Claude Code and confirm `initialize-repo` appears in the skill list. Run `npx skills add . --list` (or the docs' equivalent) and confirm it is discovered.
 - [ ] **Step 7: Commit**: `feat: package skill for plugin marketplace and skills CLI` + `Closes #12`.
 
