@@ -3,6 +3,9 @@
 #
 # Contract:
 #   gh repo view ...            prints $FAKE_GH_DIR/repo-view.json
+#   gh auth status              prints $FAKE_GH_DIR/auth-status.txt (stdout);
+#                               auth-status.err -> stderr, exit 1 (logged out)
+#   gh api graphql ...          is an ordinary GET of fixture graphql.json
 #   gh api [-X M] EP [--input F|-] [-f/-F k=v]
 #     EP is mapped to a fixture name: leading "/" stripped, every "/" -> "__",
 #     query string kept as-is ("?", "&", "=").
@@ -20,6 +23,14 @@ dir="${FAKE_GH_DIR:?FAKE_GH_DIR not set}"
 
 if [ "${1:-}" = "repo" ] && [ "${2:-}" = "view" ]; then
   cat "$dir/repo-view.json"
+  exit 0
+fi
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  if [ -f "$dir/auth-status.err" ]; then
+    cat "$dir/auth-status.err" >&2
+    exit 1
+  fi
+  cat "$dir/auth-status.txt"
   exit 0
 fi
 if [ "${1:-}" != "api" ]; then
