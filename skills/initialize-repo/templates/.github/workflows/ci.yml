@@ -32,10 +32,12 @@ jobs:
           else
             kind=logic
           fi
-          if [ "$kind" = "logic" ]; then
-            echo "logic=true" >> "$GITHUB_OUTPUT"
-          else
+          # Fail closed: skip heavy jobs only on exactly "non-logic". Any other
+          # output (empty, a typo, a future value) runs them.
+          if [ "$kind" = "non-logic" ]; then
             echo "logic=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "logic=true" >> "$GITHUB_OUTPUT"
           fi
 
   checks:

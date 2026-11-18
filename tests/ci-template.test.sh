@@ -95,7 +95,46 @@ test_no_placeholders_left() {
   done
 }
 
+# scope_logic <workflow> <event> <ci-scope output> -> the logic= value the
+# workflow's scope step writes when ci-scope.sh prints <ci-scope output>.
+# Runs the step's own shell with a fake git and a stub scripts/ci-scope.sh.
+scope_logic() {
+  local wf="$1" event="$2" printed="$3" dir
+  dir="$(mktemp -d "$TMP/scope.XXXXXX")"
+  mkdir -p "$dir/bin" "$dir/scripts"
+  printf '#!/usr/bin/env bash\necho README.md\n' >"$dir/bin/git"
+  # shellcheck disable=SC2016 # $SCOPE_PRINTS expands in the stub, not here
+  printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "%%s\\n" "$SCOPE_PRINTS"\n' >"$dir/scripts/ci-scope.sh"
+  chmod +x "$dir/bin/git"
+  yq -r '.jobs.scope.steps[] | select(.id == "scope") | .run' "$wf" >"$dir/step.sh"
+  : >"$dir/out"
+  (cd "$dir" && PATH="$dir/bin:$PATH" EVENT_NAME="$event" SCOPE_PRINTS="$printed" \
+    GITHUB_OUTPUT="$dir/out" bash -e "$dir/step.sh" >/dev/null 2>&1)
+  sed -n 's/^logic=//p' "$dir/out"
+}
+
+# Unknown scope output must run CI (fail closed): only exactly "non-logic" skips.
+test_scope_fails_closed() {
+  local wf="$1" label="$2"
+  assert_eq false "$(scope_logic "$wf" pull_request non-logic)" "$label: non-logic -> logic=false"
+  assert_eq true "$(scope_logic "$wf" pull_request logic)" "$label: logic -> logic=true"
+  assert_eq true "$(scope_logic "$wf" pull_request '')" "$label: empty output -> logic=true"
+  assert_eq true "$(scope_logic "$wf" pull_request garbage)" "$label: unknown output -> logic=true"
+  assert_eq true "$(scope_logic "$wf" pull_request 'non-logic ')" "$label: near-miss output -> logic=true"
+  assert_eq true "$(scope_logic "$wf" push non-logic)" "$label: push always logic=true"
+  # shellcheck disable=SC2016 # literal text to match
+  assert_eq 1 "$(yq -r '.jobs.scope.steps[] | select(.id == "scope") | .run' "$wf" | grep -c '"$kind" = "non-logic"')" \
+    "$label: scope step compares against exactly non-logic"
+}
+
+test_template_scope_fails_closed() {
+  render_stack placeholder main
+  test_scope_fails_closed "$TMP/placeholder-main.yml" template
+  test_scope_fails_closed "$SKILL/references/examples/step-gated.yml" step-gated-example
+}
+
 test_render_and_actionlint
+test_template_scope_fails_closed
 test_no_trigger_paths
 test_ci_ok_needs_all
 test_stack_jobs_gated
