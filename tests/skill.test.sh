@@ -84,12 +84,22 @@ test_step_gated_example_lints() {
   local matrix_jobs
   matrix_jobs="$(yq -r '.jobs | to_entries[] | select(.value.strategy.matrix) | .key' "$EXAMPLE")"
   assert_eq yes "$([ -n "$matrix_jobs" ] && echo yes || echo no)" "example has a matrix job"
-  # A count, not a literal: yq prints a literal string even after an empty select.
-  assert_eq 0 "$(yq -r '[.jobs[] | select(.strategy.matrix) | select(has("if"))] | length' "$EXAMPLE")" \
-    "matrix job has no job-level if"
-  assert_eq "" "$(yq -r '.jobs[] | select(.strategy.matrix) | .steps[] | select((.if // "") | test("needs\.scope\.outputs\.logic") | not) | (.name // .uses // .run)' "$EXAMPLE")" \
-    "every matrix-job step is gated on needs.scope.outputs.logic"
-  assert_eq "scope" "$(yq -r '.jobs[] | select(.strategy.matrix) | .needs' "$EXAMPLE" | sort -u)" "matrix job needs scope"
+  # Gated jobs: every job that needs scope. Counts, not literals: yq prints a
+  # literal string even after an empty select.
+  # shellcheck disable=SC2016 # ${{ }} is GitHub Actions syntax, not shell
+  local gated='.jobs[] | select([.needs] | flatten | any_c(. == "scope"))'
+  assert_eq yes "$([ "$(yq -r "[$gated] | length" "$EXAMPLE")" -ge 1 ] && echo yes || echo no)" "example has a job that needs scope"
+  assert_eq 0 "$(yq -r '[.jobs[] | select(.strategy.matrix) | select([.needs] | flatten | any_c(. == "scope") | not)] | length' "$EXAMPLE")" \
+    "matrix job needs scope"
+  # shellcheck disable=SC2016 # ${{ }} is GitHub Actions syntax, not shell
+  assert_eq 0 "$(yq -r "[$gated | select(.if != \"\${{ !cancelled() }}\")] | length" "$EXAMPLE")" \
+    'every gated job has job-level if: ${{ !cancelled() }} and no other condition'
+  assert_eq 0 "$(yq -r "[$gated | select(.steps[0].if != \"needs.scope.result != 'success'\")] | length" "$EXAMPLE")" \
+    "every gated job's first step fails when scope did not succeed"
+  assert_eq 0 "$(yq -r "[$gated | select(.steps[0].run | test(\"exit 1\") | not)] | length" "$EXAMPLE")" \
+    "the scope guard step exits 1"
+  assert_eq "" "$(yq -r "$gated | .steps[1:][] | select((.if // \"\") | test(\"needs\\\\.scope\\\\.outputs\\\\.logic\") | not) | (.name // .uses // .run)" "$EXAMPLE")" \
+    "every gated step after the guard depends on needs.scope.outputs.logic"
   assert_eq "" "$(grep -E '^[[:space:]]*-?[[:space:]]*uses:' "$EXAMPLE" | grep -vE 'uses: [^@]+@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+$')" \
     "every action is pinned to a SHA with a version comment"
   assert_eq 0 "$(grep -cE '^[[:space:]]*paths(-ignore)?:' "$EXAMPLE")" "example has no paths filters"

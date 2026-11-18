@@ -7,8 +7,13 @@
 #
 # Rules this file follows (see ../ci-design.md):
 # - No on.paths / on.paths-ignore on the trigger.
-# - No job-level if: on the matrix job. A job-level if that is false skips the
-#   job before the matrix expands, so the per-matrix check names never report.
+# - The only job-level condition on a gated job is if: ${{ !cancelled() }}.
+#   A job-level if that is false skips the job before the matrix expands, so
+#   the per-matrix check names never report. !cancelled() is true whenever the
+#   run was not cancelled, even when scope failed, so the job always starts.
+# - The first step fails the job when scope did not succeed. Without it a
+#   failed scope job would skip this job, and a skipped required check counts
+#   as passing.
 # - Each heavy step carries if: needs.scope.outputs.logic == 'true'.
 name: ci
 
@@ -50,13 +55,22 @@ jobs:
 
   test:
     needs: scope
-    # No job-level if: here. The job must start so every matrix name reports.
+    # Runs even when scope failed (so the guard below can fail it); only a
+    # cancelled run skips it. Never put a scope-dependent condition here.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Require scope result
+        if: needs.scope.result != 'success'
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+        run: |
+          echo "scope job did not succeed (result: $SCOPE_RESULT); refusing to report success" >&2
+          exit 1
       - name: Heavy steps skipped
         if: needs.scope.outputs.logic != 'true'
         run: echo "Only non-logic files changed; build and test steps are skipped."
