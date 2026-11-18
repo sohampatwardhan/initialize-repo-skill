@@ -156,6 +156,17 @@ test_missing_settings_dir() {
   assert_contains "$ERR" "nope" "stderr names the dir"
 }
 
+test_named_items_keep_spaces() {
+  setup repo-basic
+  run apply --repo o/r --dir "$TMP/settings" 'labels.good first issue' repo.allow_auto_merge
+  assert_eq 2 "$RC" "unknown item with spaces: exit 2"
+  assert_contains "$ERR" "unknown item: labels.good first issue" "error names the full id, spaces intact"
+  assert_eq "" "$(cat "$TMP/gh/calls.log")" "validation aborts before any write (valid sibling not applied)"
+  run apply --repo o/r --dir "$TMP/settings" 'repo.a b' repo.allow_auto_merge
+  assert_contains "$ERR" "item not in" "known area, unknown key"
+  assert_contains "$ERR" "repo.a b" "full id with space reported"
+}
+
 test_bad_usage() {
   setup repo-basic
   run apply --repo o/r --dir "$TMP/settings"
@@ -180,5 +191,6 @@ test_security_disable_uses_delete
 test_read_error_exit_2
 test_security_read_error_exit_2
 test_missing_settings_dir
+test_named_items_keep_spaces
 test_bad_usage
 finish
