@@ -1,0 +1,12 @@
+{
+  "name": "initialize-repo",
+  "version": "0.1.0",
+  "description": "Set up a GitHub repo to a professional baseline: standard files, CI that skips heavy work on non-logic changes while required checks still report, and repo settings kept as reviewable code.",
+  "author": {
+    "name": "sohampatwardhan"
+  },
+  "homepage": "https://github.com/sohampatwardhan/initialize-repo-skill",
+  "repository": "https://github.com/sohampatwardhan/initialize-repo-skill",
+  "license": "MIT",
+  "keywords": ["github", "repo-setup", "ci", "rulesets", "skill"]
+}
