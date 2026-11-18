@@ -261,6 +261,64 @@ test_bad_usage() {
   assert_eq 2 "$RC" "unknown command: exit 2"
 }
 
+# Private vulnerability reporting: GET -> {"enabled":bool}; PUT enables and
+# DELETE disables, both 204 (empty body). Private repos do not offer it.
+PVR=repos__o__r__private-vulnerability-reporting
+# shellcheck disable=SC2031 # TAB: see run_stub
+test_pvr_audit_and_apply() {
+  setup repo-basic
+  printf '{"enabled":false}\n' >"$TMP/gh/$PVR.json"
+  run audit --repo o/r --dir "$TMP/settings"
+  assert_eq 1 "$RC" "pvr off: audit exit 1"
+  assert_contains "$OUT" "DIFF${TAB}security.private_vulnerability_reporting${TAB}live=disabled${TAB}desired=enabled" "pvr off is a DIFF"
+  : >"$TMP/gh/$PVR.PUT.json" # 204
+  run apply --repo o/r --dir "$TMP/settings" security.private_vulnerability_reporting
+  assert_eq 0 "$RC" "pvr apply: exit 0"
+  assert_contains "$OUT" "APPLIED${TAB}security.private_vulnerability_reporting" "pvr APPLIED"
+  assert_contains "$(cat "$TMP/gh/calls.log")" "PUT repos/o/r/private-vulnerability-reporting" "pvr enabled with PUT"
+  run apply --repo o/r --dir "$TMP/settings" --dry-run security.private_vulnerability_reporting
+  assert_contains "$OUT" "WOULD${TAB}PUT repos/o/r/private-vulnerability-reporting" "pvr dry run"
+}
+
+test_pvr_matching_not_reported() {
+  setup repo-basic
+  run audit --repo o/r --dir "$TMP/settings"
+  assert_not_contains "$OUT" "private_vulnerability_reporting" "pvr on and wanted: no DIFF"
+}
+
+test_pvr_disable_uses_delete() {
+  setup repo-basic
+  jq '.security.private_vulnerability_reporting="disabled"' "$TMP/settings/repo.json" >"$TMP/x" && mv "$TMP/x" "$TMP/settings/repo.json"
+  run apply --repo o/r --dir "$TMP/settings" security.private_vulnerability_reporting
+  assert_contains "$(cat "$TMP/gh/calls.log")" "DELETE repos/o/r/private-vulnerability-reporting" "pvr disabled with DELETE"
+}
+
+# shellcheck disable=SC2031 # TAB: see run_stub
+test_pvr_private_repo() {
+  local code
+  for code in 404 422 403; do
+    setup repo-basic
+    rm "$TMP/gh/$PVR.json"
+    echo "gh: Not available (HTTP $code)" >"$TMP/gh/$PVR.err"
+    run audit --repo o/r --dir "$TMP/settings"
+    assert_eq 1 "$RC" "pvr GET $code: audit exit 1, not an error"
+    assert_contains "$OUT" "DIFF${TAB}security.private_vulnerability_reporting${TAB}live=unknown${TAB}desired=enabled" "pvr GET $code: live=unknown"
+  done
+  echo 'gh: Private vulnerability reporting is not available (HTTP 422)' >"$TMP/gh/$PVR.PUT.err"
+  run apply --repo o/r --dir "$TMP/settings" security.private_vulnerability_reporting
+  assert_eq 3 "$RC" "pvr refused: exit 3"
+  assert_contains "$OUT" "UNAVAILABLE${TAB}security.private_vulnerability_reporting${TAB}" "pvr refused: UNAVAILABLE"
+  assert_not_contains "$OUT" "APPLIED" "pvr refused: not APPLIED"
+}
+
+test_pvr_read_error_exit_2() {
+  setup repo-basic
+  rm "$TMP/gh/$PVR.json"
+  echo 'gh: Server Error (HTTP 500)' >"$TMP/gh/$PVR.err"
+  run audit --repo o/r --dir "$TMP/settings"
+  assert_eq 2 "$RC" "pvr read error (500): exit 2"
+}
+
 test_audit_reports_diffs
 test_audit_default_repo_from_gh
 test_audit_clean
@@ -281,4 +339,9 @@ test_ignored_patch_is_unavailable
 test_area_hooks_and_missing_repo_json
 test_glob_chars_in_item_ids
 test_bad_usage
+test_pvr_audit_and_apply
+test_pvr_matching_not_reported
+test_pvr_disable_uses_delete
+test_pvr_private_repo
+test_pvr_read_error_exit_2
 finish

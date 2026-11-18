@@ -9,7 +9,7 @@ Every setting is one item. `audit` prints item ids, and `apply` takes them:
 | Item id | File | Written with |
 | --- | --- | --- |
 | `repo.<key>` | `repo.json`, under `repo` | `PATCH repos/{owner}/{repo}` |
-| `security.<key>` | `repo.json`, under `security` | `PUT`/`DELETE` on the Dependabot endpoints, or `PATCH repos/{owner}/{repo}` for secret scanning |
+| `security.<key>` | `repo.json`, under `security` | `PUT`/`DELETE` on the Dependabot and private-vulnerability-reporting endpoints, or `PATCH repos/{owner}/{repo}` for secret scanning |
 | `labels.<name>` | `labels.json` | `POST` (missing) or `PATCH` (different) on the label |
 | `ruleset.default-branch` | `ruleset-default-branch.json` | `POST` (missing) or `PUT` (different) on the ruleset |
 
@@ -39,6 +39,7 @@ The Projects tab is not managed. It is left as it is.
 | `automated_security_fixes` | `enabled` | Dependabot security update pull requests. Needs alerts on, so apply `security.vulnerability_alerts` first (name it first on the command line). |
 | `secret_scanning` | `enabled` | Detects committed secrets. Free on public repos. On private repos it needs a paid add-on, so GitHub refuses it or ignores it, and the script reports `UNAVAILABLE`. |
 | `secret_scanning_push_protection` | `enabled` | Blocks a push that contains a detected secret. Same availability as secret scanning. |
+| `private_vulnerability_reporting` | `enabled` | Lets anyone report a vulnerability privately from the repo's **Security** tab, the channel the generated `SECURITY.md` names. It is off by default on new repos. Read with `GET repos/{owner}/{repo}/private-vulnerability-reporting` (`{"enabled": true}`), written with `PUT` (enable) or `DELETE` (disable), both 204. Only public repos offer it: on a private repo the read returns 404, audit shows `live=unknown`, and GitHub refuses an apply (`UNAVAILABLE` on HTTP 403/422). Decline it on private repos. |
 
 Values are `enabled` or `disabled`.
 
@@ -89,6 +90,7 @@ A ruleset that requires a check before that check has ever run would leave every
 
 - **Rulesets** are not available on private repos whose owner is on GitHub Free, whether a free personal account or a Free organisation. The token the skill needs (`repo`, `workflow`) usually cannot read the plan (`gh api user` returns `"plan": null` without the `user` scope), so the audit and apply results are the authoritative signal. Audit prints `NOTE ruleset.default-branch rulesets are not available on this plan` instead of a difference, and an apply is refused and reported as `UNAVAILABLE`. Making the repo public or upgrading the plan lifts the limit.
 - **Secret scanning and push protection** on private repos need a paid add-on.
+- **Private vulnerability reporting** is offered on public repos only. Decline `security.private_vulnerability_reporting` on a private repo.
 - **Issue types** exist only on some repos. The skill checks per repo (preflight's `issue_types`), never from the owner type, and falls back to the `bug` / `enhancement` / `task` labels.
 
 `UNAVAILABLE` covers both an HTTP 403/422 refusal and a 200 response that left the value unchanged. Report it as not applied, with the reason the script printed. Never count it as a success.

@@ -170,6 +170,12 @@ test_review_rules() {
     "no SKILL.md command hardcodes the approval count"
   # shellcheck disable=SC2016 # literal text
   assert_contains "$d" '--argjson n "${APPROVALS:-0}"' "the approvals jq takes the answer, defaulting to 0"
+  # SECURITY.md may name private vulnerability reporting alone only where it
+  # exists (public repos), and the settings step must turn it on.
+  assert_contains "$d" "only when the repo is public" "PVR-only contact is offered for public repos only"
+  assert_contains "$d" "security.private_vulnerability_reporting" "SKILL.md names the PVR settings item"
+  assert_eq enabled "$(jq -r '.security.private_vulnerability_reporting' "$SKILL/config/repo.json" 2>/dev/null)" \
+    "config/repo.json enables private vulnerability reporting"
 }
 
 test_frontmatter_name

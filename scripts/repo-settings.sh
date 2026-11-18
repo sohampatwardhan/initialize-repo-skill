@@ -202,7 +202,7 @@ load_repo_json() {
 # ---- area: repo -------------------------------------------------------------
 
 REPO_KEYS="allow_squash_merge allow_merge_commit allow_rebase_merge delete_branch_on_merge allow_auto_merge has_issues has_wiki"
-SECURITY_KEYS="vulnerability_alerts automated_security_fixes secret_scanning secret_scanning_push_protection"
+SECURITY_KEYS="vulnerability_alerts automated_security_fixes secret_scanning secret_scanning_push_protection private_vulnerability_reporting"
 
 # check_known_keys <area> <known-keys>: die on a key the script cannot apply.
 check_known_keys() {
@@ -277,6 +277,19 @@ security_live() {
         esac
       fi
       ;;
+    private_vulnerability_reporting)
+      # 200 {"enabled":bool}. Private repos do not offer it: GET answers 404
+      # (403/422 also seen as refusals), which reads as unknown, not an error.
+      if gh_get "repos/$REPO/private-vulnerability-reporting"; then
+        v="$(printf '%s' "$GH_OUT" | jq -r 'if .enabled == true then "enabled" elif .enabled == false then "disabled" else "unknown" end')"
+        SEC_LIVE="${v:-unknown}"
+      else
+        case "$GH_ERR" in
+          *"(HTTP 403)"* | *"(HTTP 404)"* | *"(HTTP 422)"*) SEC_LIVE=unknown ;;
+          *) soft_error "cannot read private-vulnerability-reporting: $(gh_msg)"; return 1 ;;
+        esac
+      fi
+      ;;
     secret_scanning | secret_scanning_push_protection)
       load_repo_json || return 1
       SEC_LIVE="$(printf '%s' "$REPO_JSON" | jq -r --arg k "$key" '.security_and_analysis[$k].status // "unknown"')"
@@ -305,7 +318,8 @@ apply_security() {
     *) soft_error "$item: desired value must be enabled or disabled (got '$want')"; return 0 ;;
   esac
   case "$key" in
-    vulnerability_alerts | automated_security_fixes)
+    vulnerability_alerts | automated_security_fixes | private_vulnerability_reporting)
+      # PUT enables, DELETE disables; 204 on success, so the status code decides.
       method=PUT
       [ "$want" = enabled ] || method=DELETE
       write_item "$item" "$method" "repos/$REPO/${key//_/-}"
