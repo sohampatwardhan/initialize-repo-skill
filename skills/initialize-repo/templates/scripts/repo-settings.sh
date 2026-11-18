@@ -36,7 +36,7 @@
 # Needs bash 3.2+, git, gh, jq. gh is called as "${GH:-gh}".
 set -u
 
-AREAS="repo security"
+AREAS="repo security labels"
 
 MODE=""
 REPO=""
@@ -314,6 +314,103 @@ apply_security() {
       soft_error "$item: unknown security setting"
       ;;
   esac
+}
+
+# ---- area: labels -----------------------------------------------------------
+# labels.json: {"labels":[{"name","color","description"}],"declined":[...]}.
+# Items are "labels.<name>". Extra live labels are left alone; none is deleted.
+
+LABELS_LIVE=""   # JSON array of every live label (loaded once)
+LV_COLOR=""
+LV_DESC=""
+
+config_file_labels() { echo labels.json; }
+
+validate_labels() {
+  local f="$DIR/labels.json" bad
+  jq -e '(.labels | type) == "array"' "$f" >/dev/null 2>&1 || die "$f: \"labels\" must be an array"
+  bad="$(jq -r '.labels[] | select((.name | type) != "string" or (.name | test("^[^\u0000-\u001f]+$") | not)) | tojson' "$f" | head -n 1)"
+  [ -z "$bad" ] || die "$f: label without a usable name: $bad"
+  bad="$(jq -r '.labels[] | select((.color | type) != "string" or (.color | test("^#?[0-9a-fA-F]{6}$") | not)) | "labels." + .name + " (color " + (.color | tojson) + ")"' "$f" | head -n 1)"
+  [ -z "$bad" ] || die "$f: color must be 6 hex digits: $bad"
+  bad="$(jq -r '.labels[] | select((.description // "") | type != "string") | "labels." + .name' "$f" | head -n 1)"
+  [ -z "$bad" ] || die "$f: description must be a string: $bad"
+  bad="$(jq -r '[.labels[].name | ascii_downcase] | group_by(.) | map(select(length > 1)) | first // empty | .[0]' "$f")"
+  [ -z "$bad" ] || die "$f: duplicate label name (names are case-insensitive): $bad"
+}
+
+declined_labels() { jq -r '.declined[]? | [.item, (.reason // "")] | join("\t")' "$DIR/labels.json"; }
+
+has_labels() {
+  jq -e --arg n "${1#labels.}" '.labels | any(.name == $n)' "$DIR/labels.json" >/dev/null 2>&1
+}
+
+# load_labels: fetch every live label (all pages) once; 1 after reporting on error.
+load_labels() {
+  [ -n "$LABELS_LIVE" ] && return 0
+  local raw
+  if ! raw="$("${GH:-gh}" api --paginate "repos/$REPO/labels?per_page=100" 2>"$ERRF")"; then
+    GH_ERR="$(cat "$ERRF")"
+    soft_error "cannot read repos/$REPO/labels: $(gh_msg)"
+    return 1
+  fi
+  LABELS_LIVE="$(printf '%s' "$raw" | jq -sc 'add // []' 2>/dev/null)"
+  if [ -z "$LABELS_LIVE" ]; then
+    soft_error "cannot parse the label list from repos/$REPO/labels"
+    return 1
+  fi
+}
+
+# label_field <name> <field>: desired value; color is lowercase without "#".
+label_field() {
+  jq -r --arg n "$1" --arg f "$2" '.labels[] | select(.name == $n)
+    | if $f == "color" then (.color | ltrimstr("#") | ascii_downcase) else (.description // "") end' "$DIR/labels.json"
+}
+
+# live_label <name>: returns 1 if absent; else sets LV_COLOR / LV_DESC.
+live_label() {
+  local lj
+  lj="$(printf '%s' "$LABELS_LIVE" | jq -c --arg n "$1" '[.[] | select((.name | ascii_downcase) == ($n | ascii_downcase))] | first // empty')"
+  [ -n "$lj" ] || return 1
+  LV_COLOR="$(printf '%s' "$lj" | jq -r '.color | ascii_downcase')"
+  LV_DESC="$(printf '%s' "$lj" | jq -r '.description // ""')"
+}
+
+audit_labels() {
+  local name want_c want_d
+  load_labels || return 0
+  while IFS= read -r name <&4; do
+    [ -n "$name" ] || continue
+    is_declined "labels.$name" && continue
+    want_c="$(label_field "$name" color)"
+    want_d="$(label_field "$name" description)"
+    if ! live_label "$name"; then
+      emit_diff "labels.$name" missing present
+    elif [ "$LV_COLOR" != "$want_c" ] || [ "$LV_DESC" != "$want_d" ]; then
+      emit_diff "labels.$name" "color=$LV_COLOR description=$(one_line "$LV_DESC")" "color=$want_c description=$(one_line "$want_d")"
+    fi
+  done 4<<EOF_LABELS
+$(jq -r '.labels[].name' "$DIR/labels.json")
+EOF_LABELS
+}
+
+apply_labels() {
+  local item="$1" name want_c want_d body enc
+  name="${item#labels.}"
+  load_labels || return 0
+  want_c="$(label_field "$name" color)"
+  want_d="$(label_field "$name" description)"
+  # The response must echo the color and description we asked for.
+  # shellcheck disable=SC2016 # jq program
+  local vf='((.color // "" | ascii_downcase) + "|" + (.description // ""))'
+  if live_label "$name"; then
+    body="$(jq -nc --arg c "$want_c" --arg d "$want_d" '{color: $c, description: $d}')"
+    enc="$(jq -rn --arg s "$name" '$s | @uri')"
+    write_item "$item" PATCH "repos/$REPO/labels/$enc" "$body" "$vf" "$want_c|$want_d" "color/description"
+  else
+    body="$(jq -nc --arg n "$name" --arg c "$want_c" --arg d "$want_d" '{name: $n, color: $c, description: $d}')"
+    write_item "$item" POST "repos/$REPO/labels" "$body" "$vf" "$want_c|$want_d" "color/description"
+  fi
 }
 
 # ---- dispatcher -------------------------------------------------------------

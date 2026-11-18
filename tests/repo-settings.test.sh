@@ -158,9 +158,9 @@ test_missing_settings_dir() {
 
 test_named_items_keep_spaces() {
   setup repo-basic
-  run apply --repo o/r --dir "$TMP/settings" 'labels.good first issue' repo.allow_auto_merge
+  run apply --repo o/r --dir "$TMP/settings" 'nolabels.good first issue' repo.allow_auto_merge
   assert_eq 2 "$RC" "unknown item with spaces: exit 2"
-  assert_contains "$ERR" "unknown item: labels.good first issue" "error names the full id, spaces intact"
+  assert_contains "$ERR" "unknown item: nolabels.good first issue" "error names the full id, spaces intact"
   assert_eq "" "$(cat "$TMP/gh/calls.log")" "validation aborts before any write (valid sibling not applied)"
   run apply --repo o/r --dir "$TMP/settings" 'repo.a b' repo.allow_auto_merge
   assert_contains "$ERR" "item not defined" "known area, unknown key"
@@ -247,8 +247,8 @@ test_area_hooks_and_missing_repo_json() {
 
 test_glob_chars_in_item_ids() {
   setup repo-basic
-  run apply --repo o/r --dir "$TMP/settings" 'labels.[x]?' 'stub.*'
-  assert_contains "$ERR" "unknown item: labels.[x]?" "glob characters stay literal"
+  run apply --repo o/r --dir "$TMP/settings" 'nolabels.[x]?' 'stub.*'
+  assert_contains "$ERR" "unknown item: nolabels.[x]?" "glob characters stay literal"
 }
 
 test_bad_usage() {
