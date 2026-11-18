@@ -163,8 +163,92 @@ test_named_items_keep_spaces() {
   assert_contains "$ERR" "unknown item: labels.good first issue" "error names the full id, spaces intact"
   assert_eq "" "$(cat "$TMP/gh/calls.log")" "validation aborts before any write (valid sibling not applied)"
   run apply --repo o/r --dir "$TMP/settings" 'repo.a b' repo.allow_auto_merge
-  assert_contains "$ERR" "item not in" "known area, unknown key"
+  assert_contains "$ERR" "item not defined" "known area, unknown key"
   assert_contains "$ERR" "repo.a b" "full id with space reported"
+}
+
+test_unknown_config_key_rejected() {
+  setup repo-basic
+  jq '.repo.allow_auto_merg=true' "$TMP/settings/repo.json" >"$TMP/x" && mv "$TMP/x" "$TMP/settings/repo.json"
+  run apply --repo o/r --dir "$TMP/settings" --all
+  assert_eq 2 "$RC" "unknown repo key: exit 2"
+  assert_contains "$ERR" "repo.allow_auto_merg" "stderr names the key"
+  assert_eq "" "$(cat "$TMP/gh/calls.log")" "nothing written"
+  setup repo-basic
+  jq '.security.secret_scaning="enabled"' "$TMP/settings/repo.json" >"$TMP/x" && mv "$TMP/x" "$TMP/settings/repo.json"
+  run audit --repo o/r --dir "$TMP/settings"
+  assert_eq 2 "$RC" "unknown security key: exit 2"
+  assert_contains "$ERR" "security.secret_scaning" "stderr names the key"
+}
+
+test_ignored_patch_is_unavailable() {
+  setup repo-basic
+  # GitHub answers 200 but leaves the field unchanged.
+  cp "$TMP/gh/repos__o__r.json" "$TMP/gh/repos__o__r.PATCH.json"
+  run apply --repo o/r --dir "$TMP/settings" repo.allow_auto_merge
+  assert_eq 3 "$RC" "ignored write: exit 3"
+  assert_contains "$OUT" "UNAVAILABLE${TAB}repo.allow_auto_merge${TAB}GitHub accepted the request but did not change allow_auto_merge" "UNAVAILABLE with reason"
+  assert_not_contains "$OUT" "APPLIED" "not APPLIED"
+  setup repo-basic
+  cp "$TMP/gh/repos__o__r.json" "$TMP/gh/repos__o__r.PATCH.json"
+  jq '.security_and_analysis.secret_scanning.status="disabled"' "$TMP/gh/repos__o__r.json" >"$TMP/gh/repos__o__r.json.new" && mv "$TMP/gh/repos__o__r.json.new" "$TMP/gh/repos__o__r.PATCH.json"
+  run apply --repo o/r --dir "$TMP/settings" security.secret_scanning
+  assert_contains "$OUT" "UNAVAILABLE${TAB}security.secret_scanning" "secret scanning verified from response"
+}
+
+# Registers a stub area "stub" (config stub.json) through the hook contract.
+# shellcheck disable=SC2329,SC2031
+run_stub() {
+  OUT="$({
+    # shellcheck source=../skills/initialize-repo/templates/scripts/repo-settings.sh
+    . "$SCRIPT"
+    AREAS="$AREAS stub"
+    config_file_stub() { echo stub.json; }
+    declined_stub() { jq -r '.declined[]? | [.item, .reason] | join("\t")' "$DIR/stub.json"; }
+    has_stub() { jq -e --arg n "${1#stub.}" '.things | index($n) != null' "$DIR/stub.json" >/dev/null; }
+    audit_stub() {
+      local n
+      while IFS= read -r n; do
+        is_declined "stub.$n" || emit_diff "stub.$n" live desired
+      done <<EOF_T
+$(jq -r '.things[]' "$DIR/stub.json")
+EOF_T
+    }
+    apply_stub() { printf 'STUBAPPLY%s%s\n' "$TAB" "$1"; }
+    main "$@"
+  } 2>"$TMP/stderr")"
+  RC=$?
+  ERR="$(cat "$TMP/stderr")"
+}
+
+# shellcheck disable=SC2031
+test_area_hooks_and_missing_repo_json() {
+  setup repo-basic
+  rm "$TMP/settings/repo.json"
+  echo '{"things":["a","b c"],"declined":[{"item":"stub.a","reason":"nope"}]}' >"$TMP/settings/stub.json"
+  run_stub audit --repo o/r --dir "$TMP/settings"
+  assert_eq 1 "$RC" "stub-only dir: audit works without repo.json"
+  assert_contains "$OUT" "DIFF${TAB}stub.b c${TAB}live=live${TAB}desired=desired" "stub area audited, id with space intact"
+  assert_not_contains "$OUT" "stub.a" "declined via per-area hook not reported"
+  assert_not_contains "$OUT" "repo." "repo area skipped when repo.json absent"
+  run_stub apply --repo o/r --dir "$TMP/settings" 'stub.b c' stub.a
+  assert_eq 0 "$RC" "apply stub items: exit 0"
+  assert_contains "$OUT" "STUBAPPLY${TAB}stub.b c" "named item with space reaches apply_<area> intact"
+  assert_contains "$OUT" "NOTE${TAB}stub.a is declined (nope)" "declined reason from the per-area hook"
+  assert_not_contains "$OUT" "STUBAPPLY${TAB}stub.a" "declined not applied"
+  run_stub apply --repo o/r --dir "$TMP/settings" repo.allow_auto_merge
+  assert_eq 2 "$RC" "item of an area with no config file: exit 2"
+  assert_contains "$ERR" "no settings file for area 'repo'" "error explains why"
+  rm "$TMP/settings/stub.json"
+  run audit --repo o/r --dir "$TMP/settings"
+  assert_eq 2 "$RC" "no area config at all: exit 2"
+  assert_contains "$ERR" "$TMP/settings" "stderr names the dir"
+}
+
+test_glob_chars_in_item_ids() {
+  setup repo-basic
+  run apply --repo o/r --dir "$TMP/settings" 'labels.[x]?' 'stub.*'
+  assert_contains "$ERR" "unknown item: labels.[x]?" "glob characters stay literal"
 }
 
 test_bad_usage() {
@@ -192,5 +276,9 @@ test_read_error_exit_2
 test_security_read_error_exit_2
 test_missing_settings_dir
 test_named_items_keep_spaces
+test_unknown_config_key_rejected
+test_ignored_patch_is_unavailable
+test_area_hooks_and_missing_repo_json
+test_glob_chars_in_item_ids
 test_bad_usage
 finish
