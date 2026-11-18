@@ -127,10 +127,45 @@ test_scope_fails_closed() {
     "$label: scope step compares against exactly non-logic"
 }
 
+# scope_logic_moved <workflow>: logic= value when a pull request only moves a
+# logic file (scripts/tool.sh) to a non-logic path (docs/tool.sh). Uses real
+# git in a temp repo (rename detection on, as by default) and the template's
+# real ci-scope.sh.
+scope_logic_moved() {
+  local wf="$1" dir
+  dir="$(mktemp -d "$TMP/moved.XXXXXX")"
+  (
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+    g() { git -c user.name=t -c user.email=t@example.com -c diff.renames=true "$@"; }
+    cd "$dir" || exit 1
+    g init -q
+    mkdir -p scripts docs
+    cp "$SKILL/templates/scripts/ci-scope.sh" scripts/ci-scope.sh
+    printf '#!/usr/bin/env bash\necho a tool with enough content to be detected as a rename\n' >scripts/tool.sh
+    g add -A && g commit -qm base
+    g mv scripts/tool.sh docs/tool.sh && g commit -qm move
+  ) >/dev/null 2>&1
+  yq -r '.jobs.scope.steps[] | select(.id == "scope") | .run' "$wf" >"$dir/step.sh"
+  : >"$dir/out"
+  (cd "$dir" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 EVENT_NAME=pull_request \
+    GITHUB_OUTPUT="$dir/out" bash -e "$dir/step.sh" >/dev/null 2>&1)
+  sed -n 's/^logic=//p' "$dir/out"
+}
+
+# A move is classified by both paths, so moving logic out to docs/ runs CI.
+test_scope_sees_moves() {
+  local wf="$1" label="$2"
+  assert_eq true "$(scope_logic_moved "$wf")" "$label: moving scripts/tool.sh to docs/ -> logic=true"
+  assert_eq 1 "$(yq -r '.jobs.scope.steps[] | select(.id == "scope") | .run' "$wf" | grep -c 'git diff --name-only --no-renames HEAD^1 HEAD')" \
+    "$label: scope step diffs with --no-renames"
+}
+
 test_template_scope_fails_closed() {
   render_stack placeholder main
   test_scope_fails_closed "$TMP/placeholder-main.yml" template
   test_scope_fails_closed "$SKILL/references/examples/step-gated.yml" step-gated-example
+  test_scope_sees_moves "$TMP/placeholder-main.yml" template
+  test_scope_sees_moves "$SKILL/references/examples/step-gated.yml" step-gated-example
 }
 
 test_render_and_actionlint
