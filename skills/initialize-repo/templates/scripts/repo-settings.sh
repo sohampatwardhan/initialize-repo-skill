@@ -293,6 +293,9 @@ cmd_apply() {
     [ "$HAD_ERROR" -eq 0 ] || exit 2
     todo="$DIFF_ITEMS"
   else
+    # ITEMS is newline-delimited so ids with spaces stay intact. Validate all
+    # first: one unknown item aborts (exit 2) before anything is written.
+    local IFS="$NL"
     for item in $ITEMS; do
       area="${item%%.*}"
       area_known "$area" || die "unknown item: $item"
@@ -304,6 +307,7 @@ cmd_apply() {
       fi
       todo="$todo$item$NL"
     done
+    IFS=' '
   fi
   # Word-split on newlines only; item ids may contain spaces in later areas.
   local IFS="$NL"
@@ -338,7 +342,7 @@ while [ $# -gt 0 ]; do
     --all) ALL=1; shift ;;
     -h | --help) usage ;;
     -*) die "unknown option: $1" ;;
-    *) ITEMS="$ITEMS$1 "; shift ;;
+    *) ITEMS="$ITEMS$1$NL"; shift ;;
   esac
 done
 
