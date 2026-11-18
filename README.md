@@ -13,7 +13,7 @@ The `initialize-repo` skill sets up a new GitHub repository, or brings an existi
 
 It started in a repo where a one-line `AGENTS.md` change was blocked by seven required CI jobs and had to be merged with an admin bypass. The lessons from that fix are built into the CI design; see [`skills/initialize-repo/references/ci-design.md`](skills/initialize-repo/references/ci-design.md).
 
-This repository is set up with its own skill.
+This repository is set up with its own skill, so its CI workflow and `.github/settings/` show what the skill produces.
 
 ## Install
 
