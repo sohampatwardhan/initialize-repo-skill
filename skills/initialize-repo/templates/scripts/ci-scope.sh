@@ -18,11 +18,11 @@ NON_LOGIC=(
   '*/.gitignore'
   '.github/ISSUE_TEMPLATE/*'
   '.github/pull_request_template.md'
-  # 'CHANGELOG.md'  # uncomment if release tooling reads it
 )
 ALWAYS_LOGIC=(
   '.github/workflows/*'
   'scripts/*'
+  # 'CHANGELOG.md'  # uncomment if release tooling reads it
 )
 # END SCOPE PATTERNS
 
