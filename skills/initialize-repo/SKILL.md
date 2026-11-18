@@ -80,7 +80,7 @@ Ask only what the preferences file and the repo don't answer, in one message:
 | Licence | always, unless `license` is set | `LICENSE`, `LICENSE_NAME` |
 | Copyright holder | when a licence is chosen, unless `copyright_holder` or `author_name` | `LICENSE` |
 | Stack | new: ask; existing: detect and confirm | CI snippet, `.gitignore`, `STACK_COMMANDS`, Dependabot |
-| Merge style, required approvals | unless `merge_style` / `required_approvals` (defaults: squash only, 0) | `.github/settings/` |
+| Merge style, required approvals | unless `merge_style` / `required_approvals` (defaults: squash only, 0) | `.github/settings/`, `APPROVALS` |
 | Security contact: GitHub private vulnerability reporting only, or also an email address | unless the repo already has `SECURITY.md` | `SECURITY_CONTACT` |
 
 - Licence: offer the keys from `gh api licenses | jq -r '.[] | "\(.key)\t\(.name)"'`, plus "no licence". Always ask unless the preference is set; never pick one for the user.
@@ -179,13 +179,14 @@ gh api licenses/mit | jq -r --arg y "$(date +%Y)" --arg n "$HOLDER" \
 gh api gitignore/templates/Node | jq -r '.source' > "$TMP/out/.gitignore"
 ```
 
-**Settings:** copy the defaults, then adjust them to the answers with `jq` (write to a temporary file and move it back; there is no in-place edit). The defaults are squash only, 0 approvals and `ci-ok` required, so with those answers nothing needs adjusting. For another approval count, set `n` below to it:
+**Settings:** copy the defaults, then adjust them to the answers with `jq` (write to a temporary file and move it back; there is no in-place edit). The defaults are squash only, 0 approvals and `ci-ok` required. In the block, `APPROVALS=0` is the default; change it only when the `required_approvals` answer is another number:
 
 ```bash
 mkdir -p .github/settings
 cp "$SKILL/config/repo.json" "$SKILL/config/labels.json" "$SKILL/config/ruleset-default-branch.json" .github/settings/
 f=.github/settings/ruleset-default-branch.json
-jq --argjson n 1 '.rules |= map(if .type == "pull_request" then .parameters.required_approving_review_count = $n else . end)' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+APPROVALS=0   # the required_approvals answer
+jq --argjson n "${APPROVALS:-0}" '.rules |= map(if .type == "pull_request" then .parameters.required_approving_review_count = $n else . end)' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 ```
 
 - Merge style: set the chosen `allow_*_merge` key in `repo.json` to `true` and the other two to `false`.

@@ -164,6 +164,12 @@ test_review_rules() {
   assert_contains "$d" 'top-level `type:` line' "issue-form edit targets the top-level type: line"
   assert_contains "$(cat "$SKILL/references/settings-baseline.md" 2>/dev/null)" "Free organisation" \
     "settings-baseline.md covers Free organisations"
+  # Run verbatim, the settings block must not set a fixed approval count: one
+  # required approval blocks every pull request on a solo repo.
+  assert_eq "" "$(doc_text | grep -nE -- '--argjson[[:space:]]+n[[:space:]]+[0-9]')" \
+    "no SKILL.md command hardcodes the approval count"
+  # shellcheck disable=SC2016 # literal text
+  assert_contains "$d" '--argjson n "${APPROVALS:-0}"' "the approvals jq takes the answer, defaulting to 0"
 }
 
 test_frontmatter_name
