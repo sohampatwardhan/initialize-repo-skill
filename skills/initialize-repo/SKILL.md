@@ -148,7 +148,7 @@ bash "$SKILL/scripts/render.sh" "$SKILL/templates/.github/workflows/ci.yml" "$TM
 | Node | `npm ci`, `npm run lint --if-present`, `npm test` | `npm` | `Node` | `templates/ci/node.yml` |
 | Go | `go vet ./...`, `go test ./...` | `gomod` | `Go` | `templates/ci/go.yml` |
 | Rust | `cargo clippy --all-targets -- -D warnings`, `cargo test` | `cargo` | `Rust` | `templates/ci/rust.yml` |
-| other | the repo's own commands (gather) | none | keep the existing `.gitignore` | none: keep its workflows (step 5) |
+| other | the repo's own commands (gather) | none | keep the existing `.gitignore` | with workflows: none, keep them (step 5); with none: write one (below) |
 | placeholder | a line saying build and test commands are still to come | none | ask, or skip | `templates/ci/placeholder.yml` |
 
 Put one command per line in `STACK_COMMANDS`. A Dependabot entry looks like:
@@ -166,6 +166,8 @@ Put one command per line in `STACK_COMMANDS`. A Dependabot entry looks like:
 - Python: `pyproject.toml` with pytest as a dev dependency and at least one test (pytest exits 5 when it collects none).
 - Go: `go.mod`.
 - Rust: `Cargo.toml`. The snippet uses the runner's preinstalled toolchain; add `rust-toolchain.toml` to pin one.
+
+**An other stack with no workflows** has no shipped snippet, but the template's `ci-ok` job needs `lint` and `test` jobs. Write the snippet into `$TMP/stack-jobs.yml` in the shape of `templates/ci/placeholder.yml`: keep each job's `needs: scope`, its `if:` line and the checkout step, then replace the placeholder `run:` step with the repo's lint commands from `STACK_COMMANDS` in `lint` and its test commands in `test`, plus any setup step they need. If the repo has no lint command, keep the placeholder's `lint` job as it is. Render with `--insert STACK_JOBS="$TMP/stack-jobs.yml"`.
 
 **Issue forms:** if `issue_types=no`, delete the top-level `type:` line (`type: Bug`, `type: Feature`, `type: Task`) from each rendered `$TMP/out/.github/ISSUE_TEMPLATE/*.yml`. Keep the `- type: textarea` lines under `body:`. The forms' labels (`bug`, `enhancement`, `task`) mark the kind of issue instead.
 
@@ -233,7 +235,7 @@ Skip this step for new repos.
 
 Commit messages follow the chosen commit convention.
 
-New repo: commit everything to the default branch and push it, before any ruleset is applied. Check `git status` first, and ask before committing files you did not write (a local `.env`, build output):
+New repo: commit everything to the default branch and push it, before any ruleset is applied. Check `git status` first, and ask before committing files you did not write (a local `.env`, build output). If the skill itself is installed inside the repo (`$SKILL` is under the repo root, as after a project-scope `npx skills add` into `.claude/skills/` or `.agents/skills/`), keep it out of the commit: add its path, relative to the repo root, to `.git/info/exclude` and tell the user.
 
 ```bash
 git add -A

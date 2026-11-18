@@ -130,6 +130,8 @@ test_required_content() {
   assert_contains "$d" "chore/initialize-repo" "existing repos use the setup branch"
   # shellcheck disable=SC2088 # literal text, not a path to expand
   assert_contains "$d" "~/.config/initialize-repo/defaults.yaml" "SKILL.md names the preferences file"
+  assert_contains "$d" "other stack with no workflows" "SKILL.md covers CI for an other stack with no workflows"
+  assert_contains "$d" ".git/info/exclude" "SKILL.md keeps a skill installed inside the repo out of the commit"
   local c s
   c="$(cat "$SKILL/references/ci-design.md" 2>/dev/null)"
   assert_contains "$c" "examples/step-gated.yml" "ci-design.md links the step-gated example"
@@ -220,9 +222,11 @@ test_defaults_example_keys() {
   local k
   assert_eq yes "$([ -f "$DEFAULTS" ] && echo yes || echo no)" "examples/defaults.yaml exists"
   for k in author_name copyright_holder license default_owner default_visibility merge_style required_approvals commit_convention assign_self; do
-    assert_eq 1 "$(grep -cE "^$k:" "$DEFAULTS" 2>/dev/null)" "defaults.yaml has key $k"
+    assert_eq 1 "$(grep -cE "^# $k:" "$DEFAULTS" 2>/dev/null)" "defaults.yaml documents key $k"
   done
-  assert_eq 9 "$(grep -cE '^[a-z_]+:' "$DEFAULTS" 2>/dev/null)" "defaults.yaml has exactly 9 keys"
+  assert_eq 9 "$(grep -cE '^# [a-z_]+:' "$DEFAULTS" 2>/dev/null)" "defaults.yaml documents exactly 9 keys"
+  # A copied example must not answer for the user: every key ships commented out.
+  assert_eq 0 "$(grep -cE '^[a-z_]+:' "$DEFAULTS" 2>/dev/null)" "defaults.yaml sets no key"
   assert_contains "$(doc_text)" "examples/defaults.yaml" "SKILL.md points at examples/defaults.yaml"
 }
 
