@@ -23,10 +23,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: actionlint
+      - name: Install actionlint (checksum-verified)
         run: |
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
-          ./actionlint .github/workflows/*.yml
+          set -euo pipefail
+          ver=1.7.7
+          sha=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+          tarball="actionlint_${ver}_linux_amd64.tar.gz"
+          dest="$RUNNER_TEMP/actionlint"
+          mkdir -p "$dest"
+          curl -fsSL -o "$dest/$tarball" "https://github.com/rhysd/actionlint/releases/download/v${ver}/${tarball}"
+          (cd "$dest" && echo "${sha}  ${tarball}" | sha256sum -c -)
+          tar -xzf "$dest/$tarball" -C "$dest" actionlint
+          echo "$dest" >> "$GITHUB_PATH"
+      - name: actionlint
+        run: actionlint .github/workflows/*.yml
 
   tests:
     runs-on: ubuntu-latest
@@ -36,7 +46,17 @@ jobs:
         run: command -v jq >/dev/null || sudo apt-get install -y jq
       - name: Ensure yq
         run: command -v yq >/dev/null || { echo "yq is required but not found on this runner" >&2; exit 1; }
-      - name: Install actionlint
-        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7 "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Install actionlint (checksum-verified)
+        run: |
+          set -euo pipefail
+          ver=1.7.7
+          sha=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+          tarball="actionlint_${ver}_linux_amd64.tar.gz"
+          dest="$RUNNER_TEMP/actionlint"
+          mkdir -p "$dest"
+          curl -fsSL -o "$dest/$tarball" "https://github.com/rhysd/actionlint/releases/download/v${ver}/${tarball}"
+          (cd "$dest" && echo "${sha}  ${tarball}" | sha256sum -c -)
+          tar -xzf "$dest/$tarball" -C "$dest" actionlint
+          echo "$dest" >> "$GITHUB_PATH"
       - name: Run tests
         run: bash tests/run-all.sh
